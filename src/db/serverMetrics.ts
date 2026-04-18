@@ -1,6 +1,7 @@
-import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import type { Pool, RowDataPacket } from "mysql2/promise";
 
-const RETENTION_MINUTES = 10;
+/** Max samples per Rust server — oldest rows are deleted when this is exceeded (charts show at most this many timestamps). */
+export const MAX_SERVER_METRIC_SAMPLES = 16;
 
 export type ServerMetricRow = {
   id: number;
@@ -38,18 +39,33 @@ export async function insertServerMetricSample(
   );
 }
 
-/** Prune rolling window for all servers (after each poll wave). */
-export async function pruneAllServerMetrics(pool: Pool, minutes = RETENTION_MINUTES): Promise<void> {
-  const m = Math.max(1, Math.floor(minutes));
-  await pool.query<ResultSetHeader>(
-    `DELETE FROM server_metrics_samples WHERE captured_at < DATE_SUB(NOW(), INTERVAL ${m} MINUTE)`
+/**
+ * Keep only the `keep` newest samples per server (by server_time / captured_at).
+ * Deletes older rows so charts never accumulate unbounded timestamps.
+ */
+export async function trimServerMetricsToLastN(pool: Pool, rustServerId: number, keep: number): Promise<void> {
+  const k = Math.max(1, Math.floor(keep));
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT id FROM server_metrics_samples
+     WHERE rust_server_id = :sid
+     ORDER BY COALESCE(server_time, captured_at) DESC, id DESC`,
+    { sid: rustServerId }
   );
+  if (rows.length <= k) return;
+  const drop = rows.slice(k).map((r) => Number((r as { id: unknown }).id));
+  if (drop.length === 0) return;
+  const placeholders = drop.map(() => "?").join(",");
+  await pool.query(`DELETE FROM server_metrics_samples WHERE rust_server_id = ? AND id IN (${placeholders})`, [
+    rustServerId,
+    ...drop,
+  ]);
 }
 
 export async function listServerMetricsForServer(
   pool: Pool,
   rustServerId: number
 ): Promise<ServerMetricRow[]> {
+  const limit = MAX_SERVER_METRIC_SAMPLES;
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT id,
             UNIX_TIMESTAMP(captured_at) * 1000 AS captured_at_ms,
@@ -58,8 +74,13 @@ export async function listServerMetricsForServer(
             framerate,
             memory_mb,
             players
-     FROM server_metrics_samples
-     WHERE rust_server_id = :sid
+     FROM (
+       SELECT id, captured_at, server_time, entity_count, framerate, memory_mb, players
+       FROM server_metrics_samples
+       WHERE rust_server_id = :sid
+       ORDER BY COALESCE(server_time, captured_at) DESC, id DESC
+       LIMIT ${limit}
+     ) AS newest
      ORDER BY COALESCE(server_time, captured_at) ASC, id ASC`,
     { sid: rustServerId }
   );

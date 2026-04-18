@@ -91,7 +91,7 @@ export function PositionsAdminPanel() {
             <Input
               value={coordinates}
               onChange={(e) => setCoordinates(e.target.value)}
-              placeholder="e.g. 123.4 56.7 -89.0"
+              placeholder="e.g. 154.03,0.90,-765.32"
               autoComplete="off"
             />
           </div>

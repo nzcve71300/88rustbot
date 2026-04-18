@@ -1,7 +1,11 @@
 import type { Pool } from "mysql2/promise";
 import { config } from "../config.js";
 import { decryptSecret } from "../crypto/passwordVault.js";
-import { insertServerMetricSample, pruneAllServerMetrics } from "../db/serverMetrics.js";
+import {
+  insertServerMetricSample,
+  MAX_SERVER_METRIC_SAMPLES,
+  trimServerMetricsToLastN,
+} from "../db/serverMetrics.js";
 import { listAllRustServers } from "../db/rustServers.js";
 import { parseServerinfoRconMessage } from "../rcon/serverinfoMessage.js";
 import { runWebRconCommand } from "../rcon/webrcon.js";
@@ -67,7 +71,9 @@ export function startServerMetricsPoller(pool: Pool): void {
     try {
       const rows = await listAllRustServers(pool);
       await mapPool(rows, CONCURRENCY, (row) => pollOneServer(pool, row));
-      await pruneAllServerMetrics(pool, 10);
+      for (const row of rows) {
+        await trimServerMetricsToLastN(pool, row.id, MAX_SERVER_METRIC_SAMPLES);
+      }
     } catch (e) {
       console.error("[server-metrics] poll failed:", e);
     }

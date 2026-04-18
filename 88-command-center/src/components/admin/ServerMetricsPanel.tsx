@@ -162,8 +162,8 @@ function MetricsChartCard({
           <div className="h-[220px] flex flex-col items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
             <p className="text-center px-4">Waiting for samples…</p>
             <p className="text-xs mt-2 text-center px-4 max-w-sm">
-              The bot polls <span className="font-mono">serverinfo</span> every 30s. Charts fill over the rolling 10‑minute
-              window.
+              The bot polls <span className="font-mono">serverinfo</span> every 30s. Each chart keeps at most{" "}
+              <strong>16</strong> timestamps — older points are removed as new ones arrive.
             </p>
           </div>
         ) : (
@@ -216,8 +216,8 @@ export function ServerMetricsPanel() {
       <div>
         <h2 className="text-2xl font-rajdhani font-bold text-foreground">Server Metrics</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Rolling 10‑minute history from RCON <span className="font-mono">serverinfo</span> (polled every 30s). Low / high
-          scales adapt to your data; player count uses 0–100.
+          Last <strong>16</strong> samples from RCON <span className="font-mono">serverinfo</span> (polled every 30s). Older
+          timestamps are dropped automatically. Low / high scales adapt to your data; player count uses 0–100.
         </p>
       </div>
 

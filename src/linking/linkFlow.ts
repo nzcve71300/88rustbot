@@ -123,8 +123,56 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
     // ignore permission failures
   }
 
+  const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });
+  const publicEmbed = baseEmbed()
+    .setColor(0x5b9fe8)
+    .setThumbnail(avatarUrl)
+    .setTitle("🔗 Rust profile connected")
+    .setDescription(
+      [
+        `Your in-game identity is now **\`${p.name}\`** on this Discord.`,
+        "",
+        "**Ready to play** — you can use bot commands, events, and anything here that needs your Rust name.",
+        "",
+        "*Tip: if your name changes in-game, run \`/link\` again with the new name.*",
+      ].join("\n")
+    );
+
+  const channel = interaction.channel;
+  if (channel && "send" in channel && typeof channel.send === "function") {
+    try {
+      await channel.send({ embeds: [publicEmbed] });
+    } catch {
+      await interaction.update({
+        embeds: [
+          baseEmbed()
+            .setTitle("Linked")
+            .setThumbnail(avatarUrl)
+            .setDescription(`Your Rust name is set to **${p.name}**. (Could not post a public message here — check bot **Send Messages**.)`),
+        ],
+        components: [],
+      });
+      return;
+    }
+  } else {
+    await interaction.update({
+      embeds: [
+        baseEmbed()
+          .setTitle("Linked")
+          .setThumbnail(avatarUrl)
+          .setDescription(`Your Rust name is set to **${p.name}**.`),
+      ],
+      components: [],
+    });
+    return;
+  }
+
   await interaction.update({
-    embeds: [baseEmbed().setTitle("Linked").setDescription(`Successfully linked as **${p.name}**.`)],
+    embeds: [
+      baseEmbed()
+        .setTitle("✓ All set")
+        .setDescription(`Your link is **${p.name}**. A message was posted for everyone in this channel.`),
+    ],
     components: [],
   });
 }

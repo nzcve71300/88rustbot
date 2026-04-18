@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Users } from "lucide-react";
 import type { RealServer } from "@/lib/servers";
+import { ServerHostname } from "@/components/ServerHostname";
 
 interface ServerCardProps {
   server: RealServer;
@@ -17,9 +18,18 @@ const ServerCard = ({ server, index }: ServerCardProps) => {
       style={{ animationDelay: `${index * 80}ms` }}
     >
       <div className="flex w-full min-w-0 items-start justify-between gap-3 sm:w-auto sm:flex-1 sm:items-center">
-        {/* Name */}
-        <h3 className="min-w-0 flex-1 truncate text-lg font-rajdhani font-bold text-foreground transition-colors group-hover:text-primary sm:min-w-[140px] sm:shrink-0 sm:flex-none">
-          {server.hostnamePlain || server.nickname}
+        {/* Name — min-w-0 + flex-1 so long hostnames ellipsis instead of overflowing */}
+        <h3
+          className="min-w-0 flex-1 overflow-hidden text-lg font-rajdhani font-bold text-foreground transition-colors group-hover:text-primary"
+          title={server.hostnamePlain || server.nickname}
+        >
+          <ServerHostname
+            segments={server.hostnameSegments}
+            hostnamePlain={server.hostnamePlain}
+            nickname={server.nickname}
+            truncate
+            className="text-foreground group-hover:text-primary"
+          />
         </h3>
 
         {/* Pop + Status (mobile) */}

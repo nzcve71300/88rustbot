@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import StatCard from "@/components/StatCard";
+import { ServerHostname } from "@/components/ServerHostname";
 import { Badge } from "@/components/ui/badge";
 import { fetchMe } from "@/lib/auth";
 import {
@@ -677,18 +678,16 @@ const ServerDetail = () => {
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-rajdhani font-bold text-foreground">
-                {server.hostnameSegments.length > 0 ? (
-                  <span>
-                    {server.hostnameSegments.map((seg, i) => (
-                      <span key={i} style={{ color: seg.color ?? undefined }}>
-                        {seg.text}
-                      </span>
-                    ))}
-                  </span>
-                ) : (
-                  server.hostnamePlain || server.nickname
-                )}
+              <h1
+                className="min-w-0 truncate text-2xl font-rajdhani font-bold text-foreground"
+                title={server.hostnamePlain || server.nickname}
+              >
+                <ServerHostname
+                  segments={server.hostnameSegments}
+                  hostnamePlain={server.hostnamePlain}
+                  nickname={server.nickname}
+                  truncate
+                />
               </h1>
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">

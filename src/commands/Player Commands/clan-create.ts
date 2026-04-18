@@ -9,6 +9,40 @@ import { createClanRole, createPrivateClanChannel, ensureClansCategory } from ".
 
 const TAG_RE = /^[A-Za-z]{4}$/;
 
+/** Embed accent to match the chosen clan theme. */
+const CLAN_THEME_EMBED_COLOR: Record<string, number> = {
+  red: 0xe53935,
+  orange: 0xfb8c00,
+  yellow: 0xfdd835,
+  green: 0x43a047,
+  blue: 0x1e88e5,
+  purple: 0x8e24aa,
+  black: 0x424242,
+  white: 0xe0e0e0,
+  brown: 0x6d4c41,
+  pink: 0xec407a,
+  cyan: 0x00acc1,
+  lime: 0x9ccc65,
+};
+
+function clanThemeLabel(color: string): string {
+  const labels: Record<string, string> = {
+    red: "🟥 Crimson",
+    orange: "🟧 Amber",
+    yellow: "🟨 Gold",
+    green: "🟩 Forest",
+    blue: "🟦 Ocean",
+    purple: "🟪 Royal",
+    black: "⬛ Onyx",
+    white: "⬜ Pearl",
+    brown: "🟫 Walnut",
+    pink: "🩷 Rose",
+    cyan: "🩵 Aqua",
+    lime: "🌿 Lime",
+  };
+  return labels[color] ?? color;
+}
+
 const COLOR_CHOICES = [
   { name: "🟥 Red", value: "red" },
   { name: "🟧 Orange", value: "orange" },
@@ -157,15 +191,36 @@ export const clanCreateCommand = {
       throw e;
     }
 
+    const accent = CLAN_THEME_EMBED_COLOR[color] ?? 0xffffcc;
     await interaction.editReply({
       embeds: [
         baseEmbed()
-          .setTitle("Clan created")
-          .setDescription(`Your clan **${clanName}** (**${tag}**) was created successfully.`)
+          .setColor(accent)
+          .setAuthor({
+            name: "New clan founded",
+            iconURL: interaction.user.displayAvatarURL({ size: 128 }),
+          })
+          .setTitle("🛡️ Your clan is live")
+          .setDescription(
+            [
+              `**${clanName}** · \`${tag}\``,
+              "",
+              "Your private channel and role are ready — rally the team and make it yours.",
+            ].join("\n")
+          )
           .addFields(
-            { name: "Color", value: String(color), inline: true },
-            { name: "Owner", value: `<@${interaction.user.id}>`, inline: true }
-          ),
+            {
+              name: "🎨 Theme",
+              value: clanThemeLabel(color),
+              inline: true,
+            },
+            {
+              name: "👑 Clan lead",
+              value: `<@${interaction.user.id}>`,
+              inline: true,
+            }
+          )
+          .setTimestamp(),
       ],
     });
   },

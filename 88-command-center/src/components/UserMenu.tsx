@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import { fetchMe, logout } from "@/lib/auth";
 import { fetchServers, type RealServer } from "@/lib/servers";
+import { ServerHostname } from "@/components/ServerHostname";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -297,25 +298,43 @@ export function UserMenu() {
 
               {limitToSelected ? (
                 <div className="space-y-2 rounded-md border border-border p-3">
-                  {eligibleIds.map((id) => (
-                    <div key={id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`srv-${id}`}
-                        checked={selectedIds.has(id)}
-                        onCheckedChange={(c) => {
-                          setSelectedIds((prev) => {
-                            const next = new Set(prev);
-                            if (c === true) next.add(id);
-                            else next.delete(id);
-                            return next;
-                          });
-                        }}
-                      />
-                      <Label htmlFor={`srv-${id}`} className="text-sm font-normal cursor-pointer flex-1">
-                        {servers.find((s) => s.id === id)?.nickname ?? `Server #${id}`}
-                      </Label>
-                    </div>
-                  ))}
+                  {eligibleIds.map((id) => {
+                    const srv = servers.find((s) => s.id === id);
+                    const fullName = srv ? srv.hostnamePlain || srv.nickname : `Server #${id}`;
+                    return (
+                      <div key={id} className="flex min-w-0 items-center gap-2">
+                        <Checkbox
+                          id={`srv-${id}`}
+                          checked={selectedIds.has(id)}
+                          onCheckedChange={(c) => {
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (c === true) next.add(id);
+                              else next.delete(id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <Label
+                          htmlFor={`srv-${id}`}
+                          title={fullName}
+                          className="min-w-0 flex-1 cursor-pointer text-sm font-normal"
+                        >
+                          {srv ? (
+                            <ServerHostname
+                              segments={srv.hostnameSegments}
+                              hostnamePlain={srv.hostnamePlain}
+                              nickname={srv.nickname}
+                              truncate
+                              className="text-sm font-normal text-foreground"
+                            />
+                          ) : (
+                            `Server #${id}`
+                          )}
+                        </Label>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

@@ -1,0 +1,31 @@
+{
+  "name": "lucid-discord-bot",
+  "version": "1.0.0",
+  "description": "Lucid Discord Bot - Premium ticket system with purple and cyan theme",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy-commands": "node deploy-commands.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "tickets",
+    "support"
+  ],
+  "author": "Lucid",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.6.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+

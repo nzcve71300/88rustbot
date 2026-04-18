@@ -6,7 +6,7 @@
  *
  * Usage: set vars in .env then: npm run db:create
  */
-import "dotenv/config";
+import "../src/loadEnv.js";
 import mysql from "mysql2/promise";
 
 const host = process.env.MARIA_HOST?.trim() ?? "127.0.0.1";

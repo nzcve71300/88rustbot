@@ -4,7 +4,7 @@
  *
  * Usage: npm run deploy-commands
  */
-import "dotenv/config";
+import "../src/loadEnv.js";
 import { REST, Routes } from "discord.js";
 import { slashCommands } from "../src/commands/registry.js";
 

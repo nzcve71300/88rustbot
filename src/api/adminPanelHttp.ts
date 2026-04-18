@@ -41,6 +41,7 @@ import {
   upsertNuketownGateCoord,
 } from "../db/nuketown.js";
 import { deleteMatch, getMatchForServer, upsertOneV1Config, upsertOneV1GateCoord } from "../db/onev1.js";
+import { listServerMetricsForServer } from "../db/serverMetrics.js";
 import { getRustServerByIdForGuild, getGuildRowIdForRustServerId, listRustServersForGuild } from "../db/rustServers.js";
 import { performMazeDelete } from "../maze/mazeEndActions.js";
 import { performKothEnd } from "../koth/kothEndActions.js";
@@ -72,6 +73,21 @@ function slugify(s: string): string {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatHhmmFromMs(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function adaptiveYAxis(min: number, max: number): { min: number; max: number } {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1 };
+  if (min === max) {
+    const pad = Math.max(1, Math.abs(min) * 0.05);
+    return { min: min - pad, max: max + pad };
+  }
+  const pad = (max - min) * 0.08;
+  return { min: min - pad, max: max + pad };
 }
 
 async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
@@ -824,6 +840,63 @@ export async function handleAdminPanelRoutes(
     }
 
     json(res, 200, { ok: true, saved: parsed, coordinates: coordNorm });
+    return true;
+  }
+
+  if (rest === "metrics" && method === "GET") {
+    const rows = await listServerMetricsForServer(pool, rustServerId);
+    const points = rows.map((r) => {
+      const tMs = r.serverTimeMs ?? r.capturedAtMs;
+      return {
+        tMs,
+        label: formatHhmmFromMs(tMs),
+        entityCount: r.entityCount,
+        framerate: r.framerate,
+        memoryMb: r.memoryMb,
+        players: r.players,
+      };
+    });
+
+    let latest: {
+      entityCount: number;
+      framerate: number;
+      memoryMb: number;
+      players: number;
+    } | null = null;
+    if (rows.length > 0) {
+      const last = rows[rows.length - 1]!;
+      latest = {
+        entityCount: last.entityCount,
+        framerate: last.framerate,
+        memoryMb: last.memoryMb,
+        players: last.players,
+      };
+    }
+
+    const ecVals = rows.map((r) => r.entityCount);
+    const fpsVals = rows.map((r) => r.framerate);
+    const memVals = rows.map((r) => r.memoryMb);
+
+    const yEntity =
+      ecVals.length > 0
+        ? adaptiveYAxis(Math.min(...ecVals), Math.max(...ecVals))
+        : { min: 0, max: 1 };
+    const yFps =
+      fpsVals.length > 0 ? adaptiveYAxis(Math.min(...fpsVals), Math.max(...fpsVals)) : { min: 0, max: 1 };
+    const yMem =
+      memVals.length > 0 ? adaptiveYAxis(Math.min(...memVals), Math.max(...memVals)) : { min: 0, max: 1 };
+
+    json(res, 200, {
+      ok: true,
+      points,
+      latest,
+      yAxis: {
+        entity: yEntity,
+        framerate: yFps,
+        memory: yMem,
+        players: { min: 0, max: 100 },
+      },
+    });
     return true;
   }
 

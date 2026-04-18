@@ -16,10 +16,12 @@ import { deleteExpiredInvites } from "./db/clans.js";
 import { handleLinkButton, LINK_CANCEL_ID, LINK_CONFIRM_ID } from "./linking/linkFlow.js";
 import { handleUnlinkButton, UNLINK_CANCEL_ID, UNLINK_CONFIRM_ID } from "./linking/unlinkFlow.js";
 import { startCommandCenterApi } from "./api/commandCenterApi.js";
+import { startServerMetricsPoller } from "./metrics/serverMetricsPoller.js";
 import { handleOneV1Accept, handleOneV1Duck, isOneV1AcceptButton, isOneV1DuckButton } from "./onev1/acceptFlow.js";
 
 async function main() {
   await ensureSchema();
+  startServerMetricsPoller(pool);
 
   const client = new Client({
     intents: [GatewayIntentBits.Guilds],

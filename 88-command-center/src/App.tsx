@@ -15,6 +15,7 @@ import { NuketownAdminPanel } from "./components/admin/NuketownAdminPanel";
 import { OneV1AdminPanel } from "./components/admin/OneV1AdminPanel";
 import { ClanAdminPanel } from "./components/admin/ClanAdminPanel";
 import { PositionsAdminPanel } from "./components/admin/PositionsAdminPanel";
+import { ServerMetricsPanel } from "./components/admin/ServerMetricsPanel";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/lib/auth";
 import { PushNotificationPrompt } from "@/components/PushNotificationPrompt";
@@ -56,6 +57,7 @@ const App = () => (
             <Route path="onev1" element={<OneV1AdminPanel />} />
             <Route path="clan" element={<ClanAdminPanel />} />
             <Route path="positions" element={<PositionsAdminPanel />} />
+            <Route path="metrics" element={<ServerMetricsPanel />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

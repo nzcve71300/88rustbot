@@ -579,6 +579,22 @@ export async function ensureSchema(): Promise<void> {
         KEY idx_site_inbox_created (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS server_metrics_samples (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        rust_server_id BIGINT UNSIGNED NOT NULL,
+        captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        server_time DATETIME NULL,
+        entity_count INT UNSIGNED NOT NULL,
+        framerate DOUBLE NOT NULL,
+        memory_mb INT UNSIGNED NOT NULL,
+        players SMALLINT UNSIGNED NOT NULL,
+        PRIMARY KEY (id),
+        KEY idx_server_metrics_server_captured (rust_server_id, captured_at),
+        CONSTRAINT fk_server_metrics_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
   } finally {
     conn.release();
   }

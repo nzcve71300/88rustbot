@@ -8,14 +8,16 @@ import "../src/loadEnv.js";
 import { REST, Routes } from "discord.js";
 import { slashCommands } from "../src/commands/registry.js";
 
-const token = process.env.DISCORD_TOKEN?.trim();
-if (!token) {
+/** Value from env var DISCORD_TOKEN (see .env). */
+const rawDiscordToken = process.env.DISCORD_TOKEN?.trim();
+if (!rawDiscordToken) {
   console.error("Set DISCORD_TOKEN in your .env file.");
   process.exit(1);
 }
+const discordToken: string = rawDiscordToken;
 
 async function main() {
-  const rest = new REST({ version: "10" }).setToken(token);
+  const rest = new REST({ version: "10" }).setToken(discordToken);
   const app = (await rest.get(Routes.currentApplication())) as { id: string };
   const body = slashCommands.map((cmd) => cmd.data.toJSON());
 

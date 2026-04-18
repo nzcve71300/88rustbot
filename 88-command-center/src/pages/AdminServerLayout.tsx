@@ -12,6 +12,7 @@ const CATS = [
   { to: "nuketown", label: "NUKETOWN System" },
   { to: "onev1", label: "1V1 System" },
   { to: "clan", label: "Clan System" },
+  { to: "positions", label: "Manage Positions" },
 ] as const;
 
 const AdminServerLayout = () => {

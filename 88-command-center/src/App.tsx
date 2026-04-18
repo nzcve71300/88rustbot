@@ -10,7 +10,11 @@ import NotFound from "./pages/NotFound";
 import AdminHome from "./pages/AdminHome";
 import AdminServerLayout from "./pages/AdminServerLayout";
 import { KothAdminPanel } from "./components/admin/KothAdminPanel";
-import { SystemPlaceholder } from "./components/admin/SystemPlaceholder";
+import { MazeAdminPanel } from "./components/admin/MazeAdminPanel";
+import { NuketownAdminPanel } from "./components/admin/NuketownAdminPanel";
+import { OneV1AdminPanel } from "./components/admin/OneV1AdminPanel";
+import { ClanAdminPanel } from "./components/admin/ClanAdminPanel";
+import { PositionsAdminPanel } from "./components/admin/PositionsAdminPanel";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/lib/auth";
 import { PushNotificationPrompt } from "@/components/PushNotificationPrompt";
@@ -47,42 +51,11 @@ const App = () => (
           >
             <Route index element={<Navigate to="koth" replace />} />
             <Route path="koth" element={<KothAdminPanel />} />
-            <Route
-              path="maze"
-              element={
-                <SystemPlaceholder
-                  title="MAZE System"
-                  body="Maze setup, start, and end will be added here — mirror `/maze-setup`, `/maze-start`, `/maze-delete`."
-                />
-              }
-            />
-            <Route
-              path="nuketown"
-              element={
-                <SystemPlaceholder
-                  title="NUKETOWN System"
-                  body="Nuketown controls will be added here — mirror `/nuketown-setup`, bracket flow, `/nuketown-delete`."
-                />
-              }
-            />
-            <Route
-              path="onev1"
-              element={
-                <SystemPlaceholder
-                  title="1V1 System"
-                  body="1v1 setup and match removal will be added here — mirror `/onev1-setup` and `/onev1-delete`."
-                />
-              }
-            />
-            <Route
-              path="clan"
-              element={
-                <SystemPlaceholder
-                  title="Clan System"
-                  body="Clan administration will be added here — mirror Discord clan admin flows."
-                />
-              }
-            />
+            <Route path="maze" element={<MazeAdminPanel />} />
+            <Route path="nuketown" element={<NuketownAdminPanel />} />
+            <Route path="onev1" element={<OneV1AdminPanel />} />
+            <Route path="clan" element={<ClanAdminPanel />} />
+            <Route path="positions" element={<PositionsAdminPanel />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

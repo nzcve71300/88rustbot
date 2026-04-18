@@ -1,24 +1,12 @@
 import { type ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
-import { config } from "../../config.js";
-import { decryptSecret } from "../../crypto/passwordVault.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
-import {
-  deleteMazeEventAndClearConfig,
-  getActiveMazeEvent,
-  getMazeConfig,
-  getMazeEventTopKillerWithLink,
-} from "../../db/maze.js";
-import { getRustServerByIdForGuild } from "../../db/rustServers.js";
+import { getActiveMazeEvent, getMazeConfig } from "../../db/maze.js";
 import { baseEmbed } from "../../embeds/standard.js";
-import { mazeKillTracker } from "../../maze/killTracker.js";
-import { requestStopMaze } from "../../maze/runner.js";
-import { buildMazeEndedSay, runSayRcon } from "../../rcon/eventBroadcasts.js";
+import { performMazeDelete } from "../../maze/mazeEndActions.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
-import { insertEventSnapshot } from "../../db/eventSnapshots.js";
-import { listMazeKillsDetailedForEvent, listMazeSpawnViews, sumMazeTotalKillsForEvent } from "../../db/maze.js";
 
 export const mazeDeleteCommand = {
   data: new SlashCommandBuilder()
@@ -70,39 +58,11 @@ export const mazeDeleteCommand = {
     }
 
     const cfgBefore = await getMazeConfig(pool, guildRowId, serverId);
-    const stopped = requestStopMaze(serverId);
-
-    try {
-      const srv = await getRustServerByIdForGuild(pool, guildRowId, serverId);
-      if (srv) {
-        const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
-        await mazeKillTracker.drain(serverId);
-        const top = await getMazeEventTopKillerWithLink(pool, guildRowId, active.id);
-        const endedCmd = buildMazeEndedSay(top?.clanName ?? "N/A", top?.ingameName ?? "N/A");
-        void runSayRcon(serverId, srv.server_ip, srv.rcon_port, password, endedCmd, "maze-delete");
-      }
-    } catch (err) {
-      console.error("[maze-delete] in-game say failed:", err);
+    const result = await performMazeDelete(pool, guildRowId, serverId);
+    if (!result.ok) {
+      await interaction.editReply({ embeds: [baseEmbed().setTitle("Error").setDescription(result.error)] });
+      return;
     }
-
-    // Safe website support: snapshot results for 10 minutes, then keep existing delete behavior unchanged.
-    try {
-      const totalKills = await sumMazeTotalKillsForEvent(pool, active.id);
-      const leaderboard = await listMazeKillsDetailedForEvent(pool, active.id);
-      const roster = await listMazeSpawnViews(pool, guildRowId, active.id);
-      const top = await getMazeEventTopKillerWithLink(pool, guildRowId, active.id);
-      await insertEventSnapshot({
-        pool,
-        guildRowId,
-        rustServerId: serverId,
-        type: "maze",
-        payload: { kind: "maze", endedAtMs: Date.now(), totalKills, topKiller: top, roster, leaderboard },
-      });
-    } catch (err) {
-      console.error("[maze-delete] failed to snapshot ended event:", err);
-    }
-
-    await deleteMazeEventAndClearConfig(pool, guildRowId, serverId, active.id);
 
     const channelNote = cfgBefore?.announcementChannelId
       ? ` The old announcement was in <#${cfgBefore.announcementChannelId}> (message may still exist).`
@@ -116,7 +76,7 @@ export const mazeDeleteCommand = {
             [
               `**Server ID:** ${serverId}`,
               `**Was:** ${active.status}`,
-              stopped ? "**Runner:** abort signal sent" : "**Runner:** not running (lobby only or other process)",
+              result.stoppedRunner ? "**Runner:** abort signal sent" : "**Runner:** not running (lobby only or other process)",
               "",
               `Maze config was cleared. Run **/maze-setup** again before the next event. Spawn coordinates from **/manage-positions maze-spawn** are kept.${channelNote}`,
             ].join("\n")

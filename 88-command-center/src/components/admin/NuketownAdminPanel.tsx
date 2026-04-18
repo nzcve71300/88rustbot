@@ -1,0 +1,233 @@
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { adminFetch, fetchAdminServerMeta } from "@/lib/adminApi";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toast } from "sonner";
+
+export function NuketownAdminPanel() {
+  const { serverId } = useParams();
+  const sid = Number.parseInt(serverId ?? "", 10);
+  const qc = useQueryClient();
+
+  const { data: meta } = useQuery({
+    queryKey: ["admin-meta", sid],
+    queryFn: () => fetchAdminServerMeta(sid),
+    enabled: Number.isFinite(sid) && sid > 0,
+  });
+
+  const { data: events, refetch: refetchEvents } = useQuery({
+    queryKey: ["admin-nuketown-events", sid],
+    queryFn: async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/nuketown/events`);
+      const j = (await res.json()) as { ok?: boolean; events?: Array<{ id: number; status: string }> };
+      return j.events ?? [];
+    },
+    enabled: Number.isFinite(sid) && sid > 0,
+  });
+
+  const [channelId, setChannelId] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const [gates, setGates] = useState("8");
+  const [freq, setFreq] = useState("4444");
+  const [teamLimit, setTeamLimit] = useState("4");
+  const [kit, setKit] = useState("");
+
+  const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
+  useEffect(() => {
+    if (events?.length && selectedEvent === null) setSelectedEvent(events[0].id);
+  }, [events, selectedEvent]);
+
+  const busy = async (fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Request failed");
+    }
+  };
+
+  const doSetup = () =>
+    busy(async () => {
+      const g = Number.parseInt(gates, 10);
+      const f = Number.parseInt(freq, 10);
+      const tl = Number.parseInt(teamLimit, 10);
+      const res = await adminFetch(`/api/admin/server/${sid}/nuketown/setup`, {
+        method: "POST",
+        body: JSON.stringify({
+          announcementChannelId: channelId,
+          announcementRoleId: roleId,
+          gates: g,
+          gateFrequency: f,
+          teamLimit: tl,
+          kitName: kit.trim(),
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((j as { error?: string }).error ?? "Setup failed");
+      toast.success("Nuketown lobby posted — bracket watch started.");
+      void refetchEvents();
+      void qc.invalidateQueries({ queryKey: ["admin-nuketown-events", sid] });
+    });
+
+  const doDelete = () =>
+    busy(async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/nuketown/delete`, { method: "POST", body: "{}" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((j as { error?: string }).error ?? "Delete failed");
+      toast.success("Nuketown event removed.");
+      setSelectedEvent(null);
+      void refetchEvents();
+    });
+
+  if (!Number.isFinite(sid) || sid < 1) {
+    return <p className="text-destructive text-sm">Invalid server.</p>;
+  }
+
+  const ch = meta?.channels ?? [];
+  const roles = meta?.roles ?? [];
+
+  return (
+    <div className="max-w-2xl flex flex-col gap-6">
+      <div>
+        <h2 className="text-2xl font-rajdhani font-bold text-foreground">NUKETOWN System</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Opens a timed lobby, then runs the bracket. Save Nuketown gate coordinates under Manage Positions.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-rajdhani text-lg">Active Nuketown</CardTitle>
+          <CardDescription>Force-remove lobby or running event (same idea as /nuketown-delete).</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {events && events.length > 0 ? (
+            <>
+              <div className="space-y-2">
+                <Label>Event</Label>
+                <Select
+                  value={selectedEvent != null ? String(selectedEvent) : ""}
+                  onValueChange={(v) => setSelectedEvent(Number.parseInt(v, 10))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {events.map((e) => (
+                      <SelectItem key={e.id} value={String(e.id)}>
+                        #{e.id} — {e.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="destructive" onClick={() => void doDelete()}>
+                Remove Nuketown event
+              </Button>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">No active Nuketown lobby or match.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-rajdhani text-lg">Setup Nuketown</CardTitle>
+          <CardDescription>
+            5-minute join window (or 4 clans). Gates 2–20, frequency 1000–9999, team size 1–5.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Announcement channel</Label>
+            <Select value={channelId} onValueChange={setChannelId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a text channel" />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                {ch.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    #{c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Announcement role</Label>
+            <Select value={roleId} onValueChange={setRoleId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Role to mention" />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                {roles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Gates (2–20)</Label>
+            <Select value={gates} onValueChange={setGates}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-52">
+                {Array.from({ length: 19 }, (_, i) => i + 2).map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Gate frequency (4 digits)</Label>
+            <Input
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="1000–9999"
+              value={freq}
+              onChange={(e) => setFreq(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Team limit (1–5)</Label>
+            <Select value={teamLimit} onValueChange={setTeamLimit}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Kit name</Label>
+            <Input value={kit} onChange={(e) => setKit(e.target.value)} placeholder="Kit given to players" />
+          </div>
+          <div className="sm:col-span-2">
+            <Button onClick={() => void doSetup()}>Save &amp; post lobby</Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

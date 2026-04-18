@@ -8,25 +8,12 @@ import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
-import { config } from "../../config.js";
-import { decryptSecret } from "../../crypto/passwordVault.js";
-import { getRustServerByIdForGuild, listRustServersForGuild } from "../../db/rustServers.js";
+import { listRustServersForGuild } from "../../db/rustServers.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { autocompleteServerOption } from "../shared/serverOption.js";
 import { renderNuketownEmbed } from "../../nuketown/render.js";
-import {
-  deleteNuketownEventOnly,
-  ensureLobbyNuketownForJoin,
-  getActiveNuketownEventMeta,
-  finishNuketownEvent,
-  startNuketownEvent,
-  upsertNuketownConfig,
-  setNuketownLobbyEndsAtNow,
-  listNuketownTeams,
-  listNuketownParticipants,
-} from "../../db/nuketown.js";
-import { runNuketownBracket } from "../../nuketown/runner.js";
-import { insertEventSnapshot } from "../../db/eventSnapshots.js";
+import { ensureLobbyNuketownForJoin, getActiveNuketownEventMeta, upsertNuketownConfig } from "../../db/nuketown.js";
+import { scheduleNuketownLobbyWatch } from "../../nuketown/nuketownLobbyWatch.js";
 import { notifyGuildWebPush } from "../../push/webPushNotify.js";
 
 export const nuketownSetupCommand = {
@@ -138,100 +125,7 @@ export const nuketownSetupCommand = {
       ],
     });
 
-    // Background: wait for full 4 teams or lobby timeout, then start bracket.
-    void (async () => {
-      try {
-        while (true) {
-          const m = await getActiveNuketownEventMeta(pool, guildRowId, serverId);
-          if (!m || m.status !== "lobby") return;
-          const teams = await listNuketownTeams(pool, m.id);
-          const now = Date.now();
-          if (teams.length >= 4) {
-            await setNuketownLobbyEndsAtNow(pool, m.id);
-            break;
-          }
-          if (m.lobbyEndsAtMs != null && now >= m.lobbyEndsAtMs) break;
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-
-        const m2 = await getActiveNuketownEventMeta(pool, guildRowId, serverId);
-        if (!m2 || m2.status !== "lobby") return;
-
-        const teams = await listNuketownTeams(pool, m2.id);
-        if (teams.length < 2) {
-          const ch = await interaction.client.channels.fetch(channel.id);
-          if (ch && ch instanceof TextChannel) {
-            await ch.send({
-              embeds: [baseEmbed().setTitle("Nuketown cancelled").setDescription("Not enough clans joined (need at least **2**).")],
-            });
-          }
-
-          // Snapshot cancellation for website, then delete the lobby row so status becomes "none".
-          try {
-            await insertEventSnapshot({
-              pool,
-              guildRowId,
-              rustServerId: serverId,
-              type: "nuketown",
-              payload: { kind: "nuketown", cancelled: true, reason: "Not enough clans joined (need at least 2)." },
-            });
-          } catch (snapErr) {
-            console.error("[nuketown-setup] cancel snapshot failed:", snapErr);
-          }
-          await finishNuketownEvent(pool, m2.id).catch(() => {});
-          await deleteNuketownEventOnly(pool, m2.id).catch(() => {});
-          return;
-        }
-
-        const participants = await listNuketownParticipants(pool, guildRowId, m2.id);
-        const clanMeta = new Map<number, { clanTag: string; clanName: string; clanColor: string | null }>();
-        for (const p of participants) clanMeta.set(p.clanId, { clanTag: p.clanTag, clanName: p.clanName, clanColor: (p as any).clanColor ?? null });
-        const bracket = {
-          kind: "nuketown",
-          teams: teams
-            .map((t) => ({
-              slot: t.slot,
-              clanId: t.clanId,
-              clanTag: clanMeta.get(t.clanId)?.clanTag ?? "",
-              clanName: clanMeta.get(t.clanId)?.clanName ?? "Clan",
-              clanColor: clanMeta.get(t.clanId)?.clanColor ?? null,
-            }))
-            .sort((a, b) => a.slot - b.slot),
-          stage: "running",
-          currentMatch: null,
-          winners: { semi1: null, semi2: null, champion: null },
-        };
-
-        const started = await startNuketownEvent(pool, m2.id, kitName, teamLimit, bracket);
-        if (!started) return;
-
-        const rustRow = await getRustServerByIdForGuild(pool, guildRowId, serverId);
-        if (!rustRow) return;
-
-        void notifyGuildWebPush(pool, guildRowId, serverId, {
-          title: "Grindset",
-          body: "Nuketown Started. Join now!",
-          tag: `nuketown-${m2.id}`,
-        });
-        const password = decryptSecret(rustRow.rcon_password_encrypted, config.encryptionKeyHex);
-        void runNuketownBracket({
-          client: interaction.client,
-          pool,
-          guildRowId,
-          rustServerId: serverId,
-          eventId: m2.id,
-          announcementChannelId: channel.id,
-          serverNickname: rustRow.nickname,
-          host: rustRow.server_ip,
-          port: rustRow.rcon_port,
-          password,
-          kitName,
-          gateFrequency,
-        });
-      } catch (err) {
-        console.error("[nuketown-setup] auto-start loop failed:", err);
-      }
-    })();
+    scheduleNuketownLobbyWatch(interaction.client, pool, guildRowId, serverId, channel.id, kitName, teamLimit, gateFrequency);
   },
 };
 

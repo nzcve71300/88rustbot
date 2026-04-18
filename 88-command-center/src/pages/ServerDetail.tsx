@@ -667,29 +667,44 @@ const ServerDetail = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border px-4 py-4 md:px-8">
-        <div className="container flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4 min-w-0">
+      <header className="border-b border-border px-4 py-3 md:px-8 md:py-4">
+        <div className="container">
+          {/* Mobile: keep profile visible — back + avatar on one row; title full width below */}
+          <div className="mb-2 flex items-center justify-between gap-2 md:mb-0 md:hidden">
             <button
+              type="button"
               onClick={() => navigate("/")}
-              className="rounded-md p-2 text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
+              className="shrink-0 rounded-md p-2 text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
               aria-label="Back"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <div className="min-w-0">
+            <div className="shrink-0">
+              <UserMenu />
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 md:items-center md:gap-4">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="hidden shrink-0 rounded-md p-2 text-muted-foreground hover:text-primary hover:bg-muted transition-colors md:inline-flex"
+              aria-label="Back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1">
               <h1
-                className="min-w-0 truncate text-2xl font-rajdhani font-bold text-foreground"
+                className="min-w-0 truncate text-sm font-rajdhani font-bold normal-case tracking-normal text-foreground md:text-xl lg:text-2xl"
                 title={server.hostnamePlain || server.nickname}
               >
                 <ServerHostname
                   segments={server.hostnameSegments}
                   hostnamePlain={server.hostnamePlain}
                   nickname={server.nickname}
-                  truncate
                 />
               </h1>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground md:mt-1">
                 <span className="flex items-center gap-1">
                   <span className={`h-2 w-2 rounded-full ${server.ok ? "bg-connected" : "bg-disconnected"}`} />
                   {server.ok ? "Online" : "Offline"}
@@ -700,9 +715,10 @@ const ServerDetail = () => {
                 </span>
               </div>
             </div>
+            <div className="hidden shrink-0 md:block">
+              <UserMenu />
+            </div>
           </div>
-
-          <UserMenu />
         </div>
       </header>
 

@@ -5,7 +5,10 @@ import AnimatedSearchBar from "@/components/AnimatedSearchBar";
 import { Server } from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { fetchServers } from "@/lib/servers";
+import { fetchAdminEligible } from "@/lib/adminApi";
+import { Button } from "@/components/ui/button";
 
 const Home = () => {
   const [loading, setLoading] = useState(true);
@@ -21,6 +24,13 @@ const Home = () => {
     queryFn: fetchServers,
     retry: false,
     staleTime: 10_000,
+  });
+
+  const { data: adminEligible } = useQuery({
+    queryKey: ["admin-eligible"],
+    queryFn: fetchAdminEligible,
+    retry: false,
+    staleTime: 60_000,
   });
 
   const filtered = useMemo(() => {
@@ -50,8 +60,17 @@ const Home = () => {
 
       <main className="container py-8">
         <div className="mb-6 animate-fade-in">
-          <h2 className="text-2xl font-rajdhani font-bold text-foreground">Your Servers</h2>
-          <p className="text-sm text-muted-foreground mb-4">Select a server to view details</p>
+          <h2 className="text-2xl font-rajdhani font-bold text-foreground">All Servers</h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            Every Rust server the bot is connected to — open one to view details and link your in-game name there.
+          </p>
+          {adminEligible?.ok && adminEligible.eligible ? (
+            <div className="mb-4">
+              <Button asChild variant="outline" className="border-primary/40 text-primary hover:bg-primary/10">
+                <Link to="/admin">Admin Panel</Link>
+              </Button>
+            </div>
+          ) : null}
           <AnimatedSearchBar
             value={search}
             onChange={setSearch}

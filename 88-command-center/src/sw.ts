@@ -2,9 +2,22 @@
 /// <reference types="vite-plugin-pwa/info" />
 import { precacheAndRoute } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";
-import { NetworkOnly } from "workbox-strategies";
+import { NetworkFirst, NetworkOnly } from "workbox-strategies";
 
 declare const self: ServiceWorkerGlobalScope;
+
+/**
+ * HTML navigations: try network first so users get a fresh `index.html` after deploy.
+ * (Precache-only shells are why “refresh shows new, reopen shows old”.)
+ * Falls back to cache when offline / slow.
+ */
+registerRoute(
+  ({ request }) => request.mode === "navigate",
+  new NetworkFirst({
+    cacheName: "cc-html",
+    networkTimeoutSeconds: 4,
+  })
+);
 
 precacheAndRoute(self.__WB_MANIFEST);
 
@@ -12,6 +25,14 @@ registerRoute(
   ({ url }) => url.pathname.startsWith("/.netlify/functions/"),
   new NetworkOnly()
 );
+
+/** Ship new SW immediately; take control of pages so updates apply without a stale tab. */
+self.addEventListener("install", () => {
+  void self.skipWaiting();
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 type PushPayload = {
   title?: string;

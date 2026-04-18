@@ -5,43 +5,52 @@ export type ServerHostnameProps = {
   segments: HostnameSegment[];
   hostnamePlain: string;
   nickname: string;
-  /** Single-line overflow with ellipsis (use on lists and headers). */
-  truncate?: boolean;
+  /** Optional typography wrapper (e.g. detail header). */
   className?: string;
 };
 
 /**
  * Renders Rust `server.hostname` with per-segment colors when available, otherwise plain text.
- * Use `truncate` anywhere the name must stay on one line (cards, nav, narrow layouts).
  */
 export function ServerHostname({
   segments,
   hostnamePlain,
   nickname,
-  truncate = false,
   className,
 }: ServerHostnameProps) {
-  const body =
-    segments.length > 0 ? (
-      <>
-        {segments.map((seg, i) => (
-          <span key={i} style={{ color: seg.color ?? undefined }}>
-            {seg.text}
-          </span>
-        ))}
-      </>
-    ) : (
-      <>{hostnamePlain || nickname}</>
-    );
+  const plain = hostnamePlain || nickname;
 
-  return (
-    <span
-      className={cn(
-        truncate && "block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap",
-        className
-      )}
-    >
-      {body}
-    </span>
-  );
+  if (segments.length > 0) {
+    const spans = segments.map((seg, i) => {
+      const c = seg.color;
+      return (
+        <span
+          key={i}
+          style={
+            c
+              ? {
+                  color: c,
+                  WebkitTextFillColor: c,
+                }
+              : undefined
+          }
+        >
+          {seg.text}
+        </span>
+      );
+    });
+
+    // Single inline wrapper: parent supplies `truncate`. Avoid `h3`/`button` around this tree
+    // so mobile WebKit doesn’t flatten to one text color. `forcedColorAdjust` helps link rows + a11y modes.
+    return (
+      <span
+        className={cn("inline min-w-0 align-baseline", className)}
+        style={{ forcedColorAdjust: "none" }}
+      >
+        {spans}
+      </span>
+    );
+  }
+
+  return <span className={cn("text-foreground", className)}>{plain}</span>;
 }

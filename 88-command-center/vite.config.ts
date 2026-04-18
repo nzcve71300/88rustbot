@@ -21,7 +21,8 @@ export default defineConfig(({ mode }) => ({
       registerType: "autoUpdate",
       manifestFilename: "manifest.json",
       injectManifest: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,woff}"],
+        // Don’t precache `index.html` — it must not be stuck at an old deploy while hashed JS/CSS update.
+        globPatterns: ["**/*.{js,css,ico,png,svg,woff2,woff}"],
       },
       manifest: {
         id: "/",

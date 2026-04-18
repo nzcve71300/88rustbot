@@ -1,6 +1,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import type { Client } from "discord.js";
+import { handleAdminPanelRoutes } from "./adminPanelHttp.js";
 import { pool } from "../db/pool.js";
 import { listAllRustServers } from "../db/rustServers.js";
 import { getGuildRowIdForRustServerId } from "../db/rustServers.js";
@@ -303,6 +304,17 @@ export function startCommandCenterApi(client?: Client): void {
       const key = String(req.headers["x-api-key"] ?? "");
       if (key !== apiKey) {
         unauthorized(res);
+        return;
+      }
+
+      if (path.startsWith("/api/admin/")) {
+        if (!client) {
+          json(res, 503, { ok: false, error: "Admin panel requires the Discord bot process." });
+          return;
+        }
+        const handled = await handleAdminPanelRoutes(req, res, path, client, pool);
+        if (handled) return;
+        notFound(res);
         return;
       }
 

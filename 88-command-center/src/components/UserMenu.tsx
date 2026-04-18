@@ -318,15 +318,13 @@ export function UserMenu() {
                         <Label
                           htmlFor={`srv-${id}`}
                           title={fullName}
-                          className="min-w-0 flex-1 cursor-pointer text-sm font-normal"
+                          className="min-w-0 flex-1 cursor-pointer truncate text-sm font-normal text-foreground"
                         >
                           {srv ? (
                             <ServerHostname
                               segments={srv.hostnameSegments}
                               hostnamePlain={srv.hostnamePlain}
                               nickname={srv.nickname}
-                              truncate
-                              className="text-sm font-normal text-foreground"
                             />
                           ) : (
                             `Server #${id}`

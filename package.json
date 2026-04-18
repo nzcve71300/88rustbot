@@ -7,6 +7,7 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "deploy-commands": "tsx scripts/deploy-commands.ts",
+    "verify-discord-token": "tsx scripts/verify-discord-token.ts",
     "db:create": "tsx scripts/create-database.ts"
   },
   "engines": {

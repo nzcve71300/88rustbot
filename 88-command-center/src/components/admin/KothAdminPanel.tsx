@@ -15,6 +15,21 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
+type KothConfigPayload = {
+  announcementChannelId: string;
+  announcementRoleId: string | null;
+  gates: number;
+  gateFrequency: number;
+  messageId: string | null;
+  howOftenHours: number | null;
+  waves: number | null;
+  durationPerWaveMin: number | null;
+  kitName: string | null;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
+  setupComplete: boolean;
+};
+
 export function KothAdminPanel() {
   const { serverId } = useParams();
   const sid = Number.parseInt(serverId ?? "", 10);
@@ -36,14 +51,37 @@ export function KothAdminPanel() {
     enabled: Number.isFinite(sid) && sid > 0,
   });
 
+  const { data: kothConfigRes, refetch: refetchKothConfig } = useQuery({
+    queryKey: ["admin-koth-config", sid],
+    queryFn: async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/koth/config`);
+      const j = (await res.json()) as { ok?: boolean; config?: KothConfigPayload | null };
+      return j.config ?? null;
+    },
+    enabled: Number.isFinite(sid) && sid > 0,
+  });
+
   const [channelId, setChannelId] = useState("");
   const [roleId, setRoleId] = useState("");
   const [gates, setGates] = useState("10");
   const [freq, setFreq] = useState("4444");
-
+  const [howOften, setHowOften] = useState("6");
   const [waves, setWaves] = useState("5");
   const [dur, setDur] = useState("15");
   const [kit, setKit] = useState("");
+
+  useEffect(() => {
+    const c = kothConfigRes;
+    if (!c) return;
+    setChannelId(c.announcementChannelId ?? "");
+    setRoleId(c.announcementRoleId ?? "");
+    setGates(String(c.gates ?? 10));
+    setFreq(String(c.gateFrequency ?? 4444));
+    setHowOften(String(c.howOftenHours ?? 6));
+    setWaves(String(c.waves ?? 5));
+    setDur(String(c.durationPerWaveMin ?? 15));
+    setKit(c.kitName ?? "");
+  }, [kothConfigRes]);
 
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
   useEffect(() => {
@@ -62,6 +100,9 @@ export function KothAdminPanel() {
     busy(async () => {
       const g = Number.parseInt(gates, 10);
       const f = Number.parseInt(freq, 10);
+      const h = Number.parseFloat(howOften);
+      const w = Number.parseInt(waves, 10);
+      const d = Number.parseInt(dur, 10);
       const res = await adminFetch(`/api/admin/server/${sid}/koth/setup`, {
         method: "POST",
         body: JSON.stringify({
@@ -69,13 +110,19 @@ export function KothAdminPanel() {
           gates: g,
           gateFrequency: f,
           announcementRoleId: roleId,
+          howOftenHours: h,
+          waves: w,
+          durationMinutes: d,
+          kitName: kit.trim(),
         }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((j as { error?: string }).error ?? "Setup failed");
-      toast.success("KOTH configured — message posted.");
+      toast.success("KOTH saved — new lobby message posted.");
       void refetchEvents();
+      void refetchKothConfig();
       void qc.invalidateQueries({ queryKey: ["admin-koth-events", sid] });
+      void qc.invalidateQueries({ queryKey: ["admin-koth-config", sid] });
     });
 
   const doEnd = () =>
@@ -86,20 +133,24 @@ export function KothAdminPanel() {
       toast.success("KOTH ended.");
       setSelectedEvent(null);
       void refetchEvents();
+      void refetchKothConfig();
     });
 
-  const doStart = () =>
+  const doStartAutomation = (force: boolean) =>
     busy(async () => {
-      const w = Number.parseInt(waves, 10);
-      const d = Number.parseInt(dur, 10);
       const res = await adminFetch(`/api/admin/server/${sid}/koth/start`, {
         method: "POST",
-        body: JSON.stringify({ waves: w, durationMinutes: d, kitName: kit.trim() }),
+        body: JSON.stringify({ force }),
       });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((j as { error?: string }).error ?? "Start failed");
-      toast.success("KOTH match started.");
+      const j = (await res.json().catch(() => ({}))) as { error?: string; needsForce?: boolean };
+      if (res.status === 409 && j.needsForce) {
+        toast.message("Already running — use “Force start” to reset the schedule.");
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Start failed");
+      toast.success(force ? "Schedule reset — next lobby soon." : "KOTH automation enabled.");
       void refetchEvents();
+      void refetchKothConfig();
     });
 
   if (!Number.isFinite(sid) || sid < 1) {
@@ -108,18 +159,23 @@ export function KothAdminPanel() {
 
   const ch = meta?.channels ?? [];
   const roles = meta?.roles ?? [];
+  const autoOn = kothConfigRes?.automationStarted === true;
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
       <div>
         <h2 className="text-2xl font-rajdhani font-bold text-foreground">KOTH System</h2>
-        <p className="text-sm text-muted-foreground mt-1">Setup, start, and end King of the Hill for this Rust server.</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Configure announcements and match defaults, then enable <strong>automation</strong> once. Lobbies open on a
+          schedule; players have up to <strong>15 minutes</strong> to fill gates (or all gates must fill to start
+          early). If fewer than <strong>50%</strong> of gates have clans when time is up, the lobby is cancelled.
+        </p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="font-rajdhani text-lg">Active events</CardTitle>
-          <CardDescription>Select a KOTH event row, then end it (stops waves and clears config).</CardDescription>
+          <CardDescription>End a running match or open lobby (stops waves; keeps automation config if enabled).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {events && events.length > 0 ? (
@@ -143,7 +199,7 @@ export function KothAdminPanel() {
                 </Select>
               </div>
               <Button variant="destructive" onClick={() => void doEnd()}>
-                End KOTH / delete active
+                End KOTH / cancel active
               </Button>
             </>
           ) : (
@@ -155,7 +211,10 @@ export function KothAdminPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="font-rajdhani text-lg">Setup KOTH</CardTitle>
-          <CardDescription>Posts the lobby embed and saves config (gates 1–20, frequency 1000–9999).</CardDescription>
+          <CardDescription>
+            Posts the lobby embed and saves automation fields. Gate world positions are set per gate in{" "}
+            <strong>Manage positions</strong> (KOTH Gate 1…n).
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
@@ -213,18 +272,10 @@ export function KothAdminPanel() {
               </SelectContent>
             </Select>
           </div>
-          <div className="sm:col-span-2">
-            <Button onClick={() => void doSetup()}>Save &amp; post setup</Button>
+          <div className="space-y-2">
+            <Label>How often (hours)</Label>
+            <Input value={howOften} onChange={(e) => setHowOften(e.target.value)} placeholder="e.g. 6" />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-rajdhani text-lg">Start KOTH match</CardTitle>
-          <CardDescription>Requires setup + lobby + at least one `/koth-join` + Gate 1 position saved.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <Label>Waves (1–50)</Label>
             <Input value={waves} onChange={(e) => setWaves(e.target.value.replace(/\D/g, ""))} />
@@ -233,13 +284,39 @@ export function KothAdminPanel() {
             <Label>Minutes per wave (1–120)</Label>
             <Input value={dur} onChange={(e) => setDur(e.target.value.replace(/\D/g, ""))} />
           </div>
-          <div className="space-y-2 sm:col-span-3">
+          <div className="space-y-2 sm:col-span-2">
             <Label>Kit name</Label>
             <Input value={kit} onChange={(e) => setKit(e.target.value)} placeholder="Exact kit on Rust server" />
           </div>
-          <div className="sm:col-span-3">
-            <Button onClick={() => void doStart()}>Start KOTH</Button>
+          <div className="sm:col-span-2">
+            <Button onClick={() => void doSetup()}>Save &amp; post setup</Button>
+            {kothConfigRes?.setupComplete === false ? (
+              <p className="text-xs text-amber-500/90 mt-2">Fill all fields so automation can start.</p>
+            ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-rajdhani text-lg">Automation</CardTitle>
+          <CardDescription>
+            Run once to begin scheduled lobbies (same idea as Docked Cargo start). Use force if you already enabled it
+            and want the next lobby immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row gap-2 flex-wrap">
+          <Button onClick={() => void doStartAutomation(false)} disabled={!kothConfigRes?.setupComplete}>
+            {autoOn ? "Already enabled" : "Enable KOTH automation"}
+          </Button>
+          <Button variant="secondary" onClick={() => void doStartAutomation(true)} disabled={!kothConfigRes?.setupComplete}>
+            Force next lobby now
+          </Button>
+          {autoOn ? (
+            <span className="text-xs text-emerald-400/90 self-center">Automation is ON</span>
+          ) : (
+            <span className="text-xs text-muted-foreground self-center">Automation is OFF</span>
+          )}
         </CardContent>
       </Card>
     </div>

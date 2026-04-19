@@ -10,7 +10,7 @@ import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { config } from "../../config.js";
 import { decryptSecret } from "../../crypto/passwordVault.js";
-import { ensureLobbyMazeForJoin, MAZE_MAX_SPAWN_POINTS, upsertMazeConfig } from "../../db/maze.js";
+import { MAZE_MAX_SPAWN_POINTS, mergeMazeConfig } from "../../db/maze.js";
 import { getRustServerByIdForGuild, listRustServersForGuild } from "../../db/rustServers.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { renderMazeEmbed } from "../../maze/render.js";
@@ -21,7 +21,7 @@ import { notifyGuildWebPush } from "../../push/webPushNotify.js";
 export const mazeSetupCommand = {
   data: new SlashCommandBuilder()
     .setName("maze-setup")
-    .setDescription("Configure the Maze Event announcement for a Rust server (admin only).")
+    .setDescription("Configure the Maze Event (announcements, schedule, duration, kit, respawn). Coords: /manage-positions.")
     .addStringOption((o) =>
       o.setName("server").setDescription("Rust server").setRequired(true).setAutocomplete(true)
     )
@@ -42,6 +42,35 @@ export const mazeSetupCommand = {
     )
     .addRoleOption((o) =>
       o.setName("announcement_role").setDescription("Role to mention on the announcement").setRequired(true)
+    )
+    .addNumberOption((o) =>
+      o
+        .setName("how_often")
+        .setDescription("Hours between automatic maze lobbies (same idea as KOTH / Docked Cargo)")
+        .setRequired(true)
+        .setMinValue(0.25)
+        .setMaxValue(168)
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("duration_minutes")
+        .setDescription("Match length in minutes (when the maze run starts)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(180)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("respawn")
+        .setDescription("Can players respawn / stay in after dying?")
+        .setRequired(true)
+        .addChoices(
+          { name: "Yes — eliminations off (stay in roster)", value: "yes" },
+          { name: "No — one life (removed from event on death)", value: "no" }
+        )
+    )
+    .addStringOption((o) =>
+      o.setName("kit_name").setDescription("Kit name as configured on the Rust server").setRequired(true)
     ),
 
   async autocomplete(interaction: import("discord.js").AutocompleteInteraction) {
@@ -65,6 +94,10 @@ export const mazeSetupCommand = {
     const channel = interaction.options.getChannel("announcement_channel", true);
     const spawnPoints = interaction.options.getInteger("spawn_points", true);
     const role = interaction.options.getRole("announcement_role", true);
+    const howOften = interaction.options.getNumber("how_often", true);
+    const durationMin = interaction.options.getInteger("duration_minutes", true);
+    const respawnRaw = interaction.options.getString("respawn", true);
+    const kitName = interaction.options.getString("kit_name", true).trim();
 
     if (!(channel instanceof TextChannel)) {
       await interaction.reply({
@@ -88,15 +121,23 @@ export const mazeSetupCommand = {
     const embed = renderMazeEmbed(srv.nickname, srv.nickname, [], null, null);
     const sent = await channel.send({ content: `<@&${role.id}>`, embeds: [embed] });
 
-    await upsertMazeConfig(pool, guildRowId, serverId, channel.id, role.id, spawnPoints, sent.id);
-
-    // Create the lobby immediately so the website shows "Pending" right after setup (even with 0 joined).
-    await ensureLobbyMazeForJoin(pool, guildRowId, serverId);
+    await mergeMazeConfig(pool, guildRowId, serverId, {
+      announcementChannelId: channel.id,
+      announcementRoleId: role.id,
+      spawnPoints,
+      messageId: sent.id,
+      howOftenHours: howOften,
+      durationMinutes: durationMin,
+      kitName,
+      respawnEnabled: respawnRaw === "yes",
+      automationStarted: false,
+      nextLobbyAtMs: null,
+    });
 
     void notifyGuildWebPush(pool, guildRowId, serverId, {
       title: "Grindset",
-      body: "Maze lobby is open. Join now!",
-      tag: `maze-lobby-setup`,
+      body: "Maze has been configured. Use /maze-start to enable automatic lobbies.",
+      tag: `maze-setup-${serverId}`,
     });
 
     await interaction.editReply({
@@ -104,7 +145,8 @@ export const mazeSetupCommand = {
         baseEmbed()
           .setTitle("Maze Event configured")
           .setDescription(
-            `Announcement posted in ${channel} with **${spawnPoints}** spawn slot(s). Use **/manage-positions maze-spawn** to save coordinates, then **/maze-start** when ready.`
+            `Saved **how often**, **duration**, **kit**, and **respawn** mode. Message posted in ${channel}. ` +
+              `Save **maze-spawn** positions in **/manage-positions**, then run **/maze-start** once to begin automatic lobbies.`
           ),
       ],
     });

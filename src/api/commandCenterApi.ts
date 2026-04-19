@@ -698,11 +698,11 @@ export function startCommandCenterApi(client?: Client): void {
           return;
         }
 
-        const [kCfg, kMeta, mCfg, mActive, nCfg, nMeta, ov1Cfg, ov1Match, dCfg] = await Promise.all([
+        const [kCfg, kMeta, mCfg, mMeta, nCfg, nMeta, ov1Cfg, ov1Match, dCfg] = await Promise.all([
           getKothConfig(pool, guildRowId, serverId),
           getActiveKothEventMeta(pool, guildRowId, serverId),
           getMazeConfig(pool, guildRowId, serverId),
-          getActiveMazeEvent(pool, guildRowId, serverId),
+          getActiveMazeEventMeta(pool, guildRowId, serverId),
           getNuketownConfig(pool, guildRowId, serverId),
           getActiveNuketownEventMeta(pool, guildRowId, serverId),
           getOneV1Config(pool, guildRowId, serverId),
@@ -718,7 +718,7 @@ export function startCommandCenterApi(client?: Client): void {
         ]);
 
         const kEventId = kMeta?.id ?? null;
-        const mEventId = mActive?.id ?? null;
+        const mEventId = mMeta?.id ?? null;
         const nEventId = nMeta?.id ?? null;
 
         const kothDoorMs = getKothDoorDelayMs();
@@ -763,7 +763,7 @@ export function startCommandCenterApi(client?: Client): void {
         const kStatus =
           kMeta?.status === "running" ? "active" : kMeta?.status === "lobby" ? "pending" : "none";
         const mStatus =
-          mActive?.status === "running" ? "active" : mActive?.status === "lobby" ? "pending" : "none";
+          mMeta?.status === "running" ? "active" : mMeta?.status === "lobby" ? "pending" : "none";
         const nStatus =
           nMeta?.status === "running" ? "active" : nMeta?.status === "lobby" ? "pending" : "none";
 
@@ -861,6 +861,9 @@ export function startCommandCenterApi(client?: Client): void {
           maze: {
             status: mStatus,
             spawnPointsTotal: mCfg ? Math.min(mCfg.spawnPoints, MAZE_MAX_SPAWN_POINTS) : null,
+            automationStarted: mCfg?.automationStarted ?? false,
+            nextLobbyAtMs: mCfg?.nextLobbyAtMs ?? null,
+            lobbyEndsAtMs: mMeta?.lobbyEndsAtMs ?? null,
             joined: mMembers,
             participants: mSpawns.map((p) => ({
               discordUserId: p.discordUserId,

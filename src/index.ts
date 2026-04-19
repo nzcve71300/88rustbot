@@ -28,6 +28,8 @@ import { handleOneV1Accept, handleOneV1Duck, isOneV1AcceptButton, isOneV1DuckBut
 import { initDockedCargoScheduler } from "./dockedCargo/runner.js";
 import { initKothAutomationScheduler } from "./koth/automation.js";
 import { handleKothForceRestart } from "./koth/startInteractions.js";
+import { initMazeAutomationScheduler } from "./maze/automation.js";
+import { handleMazeForceRestart } from "./maze/startInteractions.js";
 
 async function main() {
   await ensureSchema();
@@ -64,6 +66,7 @@ async function main() {
 
     initDockedCargoScheduler(pool, client);
     initKothAutomationScheduler(pool, client);
+    initMazeAutomationScheduler(pool, client);
 
     // Keep clan invite table clean (24h expiry).
     setInterval(() => {
@@ -138,6 +141,23 @@ async function main() {
       if (interaction.customId.startsWith("koth:rs:")) {
         try {
           await handleKothForceRestart(interaction);
+        } catch (err) {
+          console.error(err);
+          try {
+            if (interaction.deferred || interaction.replied) {
+              await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+            } else {
+              await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
+      if (interaction.customId.startsWith("maze:rs:")) {
+        try {
+          await handleMazeForceRestart(interaction);
         } catch (err) {
           console.error(err);
           try {

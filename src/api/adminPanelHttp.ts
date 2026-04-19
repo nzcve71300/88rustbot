@@ -20,14 +20,11 @@ import {
   isKothAutomationConfigComplete,
 } from "../db/koth.js";
 import {
-  countMazeEventMembers,
-  ensureLobbyMazeForJoin,
   getActiveMazeEvent,
   getMazeConfig,
-  listMissingMazeSpawnCoords,
+  isMazeAutomationConfigComplete,
   MAZE_MAX_SPAWN_POINTS,
-  startMazeEvent,
-  upsertMazeConfig,
+  mergeMazeConfig,
   upsertMazeSpawnCoord,
 } from "../db/maze.js";
 import {
@@ -46,7 +43,7 @@ import { performKothEnd } from "../koth/kothEndActions.js";
 import { renderKothEmbed } from "../koth/render.js";
 import { startKothAutomation } from "../koth/automation.js";
 import { renderMazeEmbed } from "../maze/render.js";
-import { runMazeEvent } from "../maze/runner.js";
+import { startMazeAutomation } from "../maze/automation.js";
 import { renderNuketownEmbed } from "../nuketown/render.js";
 import { scheduleNuketownLobbyWatch } from "../nuketown/nuketownLobbyWatch.js";
 import { requestStopNuketown } from "../nuketown/runner.js";
@@ -385,22 +382,70 @@ export async function handleAdminPanelRoutes(
     return true;
   }
 
+  if (rest === "maze/config" && method === "GET") {
+    const cfg = await getMazeConfig(pool, guildRowId, rustServerId);
+    json(res, 200, {
+      ok: true,
+      config: cfg
+        ? {
+            announcementChannelId: cfg.announcementChannelId,
+            announcementRoleId: cfg.announcementRoleId,
+            spawnPoints: cfg.spawnPoints,
+            messageId: cfg.messageId,
+            howOftenHours: cfg.howOftenHours,
+            durationMinutes: cfg.durationMinutes,
+            kitName: cfg.kitName,
+            respawnEnabled: cfg.respawnEnabled,
+            automationStarted: cfg.automationStarted,
+            nextLobbyAtMs: cfg.nextLobbyAtMs,
+            setupComplete: isMazeAutomationConfigComplete(cfg),
+          }
+        : null,
+    });
+    return true;
+  }
+
   if (rest === "maze/setup" && method === "POST") {
     const raw = await readJsonBody(req);
     const body = raw as {
       announcementChannelId?: string;
       spawnPoints?: number;
       announcementRoleId?: string;
+      howOftenHours?: number;
+      durationMinutes?: number;
+      kitName?: string;
+      respawn?: string;
     };
     const announcementChannelId = String(body.announcementChannelId ?? "").trim();
     const spawnPoints = Number(body.spawnPoints);
     const announcementRoleId = String(body.announcementRoleId ?? "").trim();
+    const howOftenHours = Number(body.howOftenHours);
+    const durationMin = Number(body.durationMinutes);
+    const kitName = String(body.kitName ?? "").trim();
+    const respawnRaw = String(body.respawn ?? "").toLowerCase();
+
     if (!announcementChannelId || !announcementRoleId || !Number.isFinite(spawnPoints)) {
       json(res, 400, { ok: false, error: "Channel, spawn points, and role required." });
       return true;
     }
     if (spawnPoints < 1 || spawnPoints > MAZE_MAX_SPAWN_POINTS) {
       json(res, 400, { ok: false, error: `Spawn points must be 1–${MAZE_MAX_SPAWN_POINTS}.` });
+      return true;
+    }
+    if (!Number.isFinite(howOftenHours) || howOftenHours < 0.25 || howOftenHours > 168) {
+      json(res, 400, { ok: false, error: "How often (hours) must be between 0.25 and 168." });
+      return true;
+    }
+    if (!Number.isFinite(durationMin) || durationMin < 1 || durationMin > 180) {
+      json(res, 400, { ok: false, error: "Duration must be 1–180 minutes." });
+      return true;
+    }
+    if (respawnRaw !== "yes" && respawnRaw !== "no") {
+      json(res, 400, { ok: false, error: 'respawn must be "yes" or "no".' });
+      return true;
+    }
+    if (!kitName) {
+      json(res, 400, { ok: false, error: "Kit name required." });
       return true;
     }
 
@@ -425,13 +470,23 @@ export async function handleAdminPanelRoutes(
     const embed = renderMazeEmbed(srv.nickname, srv.nickname, [], null, null);
     const sent = await ch.send({ content: `<@&${role.id}>`, embeds: [embed] });
 
-    await upsertMazeConfig(pool, guildRowId, rustServerId, ch.id, role.id, spawnPoints, sent.id);
-    await ensureLobbyMazeForJoin(pool, guildRowId, rustServerId);
+    const mergedCfg = await mergeMazeConfig(pool, guildRowId, rustServerId, {
+      announcementChannelId: ch.id,
+      announcementRoleId: role.id,
+      spawnPoints,
+      messageId: sent.id,
+      howOftenHours,
+      durationMinutes: durationMin,
+      kitName,
+      respawnEnabled: respawnRaw === "yes",
+      automationStarted: false,
+      nextLobbyAtMs: null,
+    });
 
     void notifyGuildWebPush(pool, guildRowId, rustServerId, {
       title: "Grindset",
-      body: "Maze lobby is open. Join now!",
-      tag: "maze-lobby-setup",
+      body: "Maze configured. Start automation from the admin panel when ready.",
+      tag: `maze-setup-${rustServerId}`,
     });
 
     try {
@@ -444,99 +499,35 @@ export async function handleAdminPanelRoutes(
       console.error("[admin maze-setup] say failed:", err);
     }
 
-    json(res, 200, { ok: true, messageId: sent.id });
+    json(res, 200, {
+      ok: true,
+      messageId: sent.id,
+      setupComplete: isMazeAutomationConfigComplete(mergedCfg),
+    });
     return true;
   }
 
   if (rest === "maze/start" && method === "POST") {
     const raw = await readJsonBody(req);
-    const body = raw as { respawn?: string; durationMinutes?: number; kitName?: string };
-    const respawnRaw = String(body.respawn ?? "").toLowerCase();
-    const durationMin = Number(body.durationMinutes);
-    const kitName = String(body.kitName ?? "").trim();
-
-    if (respawnRaw !== "yes" && respawnRaw !== "no") {
-      json(res, 400, { ok: false, error: 'respawn must be "yes" or "no".' });
-      return true;
-    }
-    if (!Number.isFinite(durationMin) || durationMin < 1 || durationMin > 180) {
-      json(res, 400, { ok: false, error: "Duration must be 1–180 minutes." });
-      return true;
-    }
-    if (!kitName) {
-      json(res, 400, { ok: false, error: "Kit name required." });
-      return true;
-    }
+    const body = raw as { force?: boolean };
+    const force = Boolean(body.force);
 
     const cfg = await getMazeConfig(pool, guildRowId, rustServerId);
-    if (!cfg || !cfg.messageId) {
-      json(res, 400, { ok: false, error: "Run Maze setup first." });
+    if (!cfg || !cfg.messageId || !isMazeAutomationConfigComplete(cfg)) {
+      json(res, 400, { ok: false, error: "Complete Maze setup (how often, duration, kit, respawn) first." });
       return true;
     }
 
-    const active = await getActiveMazeEvent(pool, guildRowId, rustServerId);
-    if (!active || active.status !== "lobby") {
-      json(res, 400, { ok: false, error: "Need an active maze lobby with /maze-join players." });
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
       return true;
     }
 
-    const members = await countMazeEventMembers(pool, active.id);
-    if (members < 1) {
-      json(res, 400, { ok: false, error: "At least one player must /maze-join first." });
+    const started = await startMazeAutomation(pool, guildRowId, rustServerId);
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
       return true;
     }
-
-    const missingCoords = await listMissingMazeSpawnCoords(pool, guildRowId, rustServerId, cfg.spawnPoints);
-    if (missingCoords.length > 0) {
-      json(res, 400, {
-        ok: false,
-        error: `Missing maze spawn coordinates for: ${missingCoords.join(", ")}. Use Manage Positions.`,
-      });
-      return true;
-    }
-
-    const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
-    if (!srv) {
-      json(res, 404, { ok: false, error: "Server not found" });
-      return true;
-    }
-
-    let password: string;
-    try {
-      password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
-    } catch {
-      json(res, 500, { ok: false, error: "RCON decrypt failed" });
-      return true;
-    }
-
-    const respawnEnabled = respawnRaw === "yes";
-    const started = await startMazeEvent(pool, active.id, durationMin, kitName, respawnEnabled);
-    if (!started) {
-      json(res, 409, { ok: false, error: "Could not start maze." });
-      return true;
-    }
-
-    void notifyGuildWebPush(pool, guildRowId, rustServerId, {
-      title: "Grindset",
-      body: "Maze Started. Join now!",
-      tag: `maze-${active.id}`,
-    });
-
-    void runMazeEvent({
-      client,
-      pool,
-      guildRowId,
-      rustServerId,
-      eventId: active.id,
-      announcementChannelId: cfg.announcementChannelId,
-      serverNickname: srv.nickname,
-      host: srv.server_ip,
-      port: srv.rcon_port,
-      password,
-      durationMinutes: durationMin,
-      kitName,
-      spawnPointCount: cfg.spawnPoints,
-    });
 
     json(res, 200, { ok: true, started: true });
     return true;

@@ -3,6 +3,8 @@ export type EventStatus = "none" | "pending" | "active";
 export type ServerEventsResponse = {
   ok: true;
   serverId: number;
+  /** Bot/server time when the response was built; use with `performance.now()` anchoring so countdowns match across devices even if the system clock is wrong. */
+  serverNowMs?: number;
   koth: {
     status: EventStatus;
     phase?: "door_delay" | "wave_active" | "between_waves" | null;
@@ -12,6 +14,9 @@ export type ServerEventsResponse = {
     teleportCountdownMs?: number;
     doorDelayMs?: number;
     gatesTotal: number | null;
+    automationStarted?: boolean;
+    nextLobbyAtMs?: number | null;
+    lobbyEndsAtMs?: number | null;
     joined: number;
     participants: { discordUserId: string; ingameName: string; clanId: number; clanName: string; gateNumber: number }[];
     ended: null | { status: "ended"; expiresAtMs: number; payload: unknown };
@@ -37,6 +42,9 @@ export type ServerEventsResponse = {
   maze: {
     status: EventStatus;
     spawnPointsTotal: number | null;
+    automationStarted?: boolean;
+    nextLobbyAtMs?: number | null;
+    lobbyEndsAtMs?: number | null;
     joined: number;
     participants: { discordUserId: string; ingameName: string; clanName: string; spawnNumber: number }[];
     ended: null | { status: "ended"; expiresAtMs: number; payload: unknown };

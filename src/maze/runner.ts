@@ -7,13 +7,14 @@ import {
   truncateEmbedDescription,
 } from "../embeds/eventResults.js";
 import {
-  deleteMazeEventAndClearConfig,
   finishMazeEvent,
   getMazeEventTopKillerWithLink,
   listMazeKillLogForEvent,
   listMazeKillsDetailedForEvent,
   listMazeParticipantsForTeleport,
   listMazeSpawnViews,
+  getMazeConfig,
+  removeMazeEventAndApplyConfigOutcome,
   sumMazeTotalKillsForEvent,
 } from "../db/maze.js";
 import { buildMazeEndedSay, MAZE_RCON_START, runSayRcon } from "../rcon/eventBroadcasts.js";
@@ -211,21 +212,24 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
       console.error("[maze] failed to snapshot ended event:", err);
     }
 
-    await deleteMazeEventAndClearConfig(pool, guildRowId, rustServerId, eventId);
+    await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, rustServerId, eventId);
 
+    const cfgAfter = await getMazeConfig(pool, guildRowId, rustServerId);
     const doneCh = await client.channels.fetch(announcementChannelId);
     if (doneCh && doneCh instanceof TextChannel) {
+      const nextLine =
+        cfgAfter?.automationStarted && cfgAfter.howOftenHours && cfgAfter.howOftenHours > 0
+          ? "The next **automatic lobby** is scheduled per your **How often** interval."
+          : "Run **/maze-setup** again before the next manual event. **Maze spawn-point** coordinates from **/manage-positions** are kept.";
       const clearedDesc = truncateEmbedDescription(
-        [
-          `**${serverNickname}** — the Maze event is complete.`,
-          "",
-          "Run **/maze-setup** again before the next event. **Maze spawn-point** coordinates from **/manage-positions** are kept.",
-          "",
-          poweredByFooterBlock(),
-        ].join("\n")
+        [`**${serverNickname}** — the Maze event is complete.`, "", nextLine, "", poweredByFooterBlock()].join("\n")
       );
       await doneCh.send({
-        embeds: [eventResultEmbed().setTitle("🧭 **Maze Setup Cleared**").setDescription(clearedDesc)],
+        embeds: [
+          eventResultEmbed()
+            .setTitle(cfgAfter?.automationStarted ? "🧭 **Maze — Round Complete**" : "🧭 **Maze Setup Cleared**")
+            .setDescription(clearedDesc),
+        ],
       });
     }
   } catch (err) {
@@ -245,7 +249,7 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
       });
     }
     try {
-      await deleteMazeEventAndClearConfig(pool, guildRowId, rustServerId, eventId);
+      await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, rustServerId, eventId);
     } catch {
       /* ignore */
     }

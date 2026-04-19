@@ -83,8 +83,8 @@ function neonEventStatusClass(label: string): string {
   return "text-cyan-300/90 font-medium drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]";
 }
 
-function formatRemainMs(untilMs: number): string {
-  const ms = Math.max(0, untilMs - Date.now());
+function formatRemainMs(untilMs: number, nowMs: number): string {
+  const ms = Math.max(0, untilMs - nowMs);
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -156,6 +156,23 @@ const ServerDetail = () => {
     retry: false,
   });
 
+  /** Anchor bot time to monotonic clock so countdowns match phones/PCs even when system time is wrong. */
+  const eventsTimeAnchor = useMemo(() => {
+    if (events?.serverNowMs == null) return null;
+    return { serverNow: events.serverNowMs, perf: performance.now() };
+  }, [events?.serverNowMs]);
+
+  const [eventClockTick, setEventClockTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setEventClockTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const syncedNow = useMemo(() => {
+    if (eventsTimeAnchor) return eventsTimeAnchor.serverNow + (performance.now() - eventsTimeAnchor.perf);
+    return Date.now();
+  }, [eventsTimeAnchor, eventClockTick]);
+
   const { data: leaderboard } = useQuery({
     queryKey: ["server-leaderboard", serverId],
     queryFn: () => fetchServerLeaderboard(serverId!),
@@ -217,7 +234,7 @@ const ServerDetail = () => {
   const [kothPhaseTick, setKothPhaseTick] = useState(0);
   useEffect(() => {
     const end = events?.koth.phaseEndsAtMs;
-    if (end == null || end <= Date.now()) return;
+    if (end == null) return;
     const id = window.setInterval(() => setKothPhaseTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [events?.koth.phaseEndsAtMs]);
@@ -225,17 +242,27 @@ const ServerDetail = () => {
   const [dockedTick, setDockedTick] = useState(0);
   useEffect(() => {
     const end = events?.dockedCargo?.phaseEndsAtMs;
-    if (end == null || end <= Date.now()) return;
+    if (end == null) return;
     const id = window.setInterval(() => setDockedTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [events?.dockedCargo?.phaseEndsAtMs]);
   void dockedTick;
 
+  const [kothLobbyTick, setKothLobbyTick] = useState(0);
+  useEffect(() => {
+    const le = events?.koth?.lobbyEndsAtMs;
+    const nl = events?.koth?.nextLobbyAtMs;
+    if (le == null && nl == null) return;
+    const id = window.setInterval(() => setKothLobbyTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [events?.koth?.lobbyEndsAtMs, events?.koth?.nextLobbyAtMs]);
+  void kothLobbyTick;
+
   const [nuketownLobbyTick, setNuketownLobbyTick] = useState(0);
   useEffect(() => {
     const end = (events as any)?.nuketown?.lobbyEndsAtMs as number | null | undefined;
     const status = (events as any)?.nuketown?.status as string | undefined;
-    if (status !== "pending" || end == null || end <= Date.now()) return;
+    if (status !== "pending" || end == null) return;
     const id = window.setInterval(() => setNuketownLobbyTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [(events as any)?.nuketown?.status, (events as any)?.nuketown?.lobbyEndsAtMs]);
@@ -249,8 +276,8 @@ const ServerDetail = () => {
   void nuketownLobbyTick;
   const kothPhaseEnd = events?.koth.phaseEndsAtMs;
   const kothPhaseRemainSec =
-    kothPhaseEnd != null && Date.now() < kothPhaseEnd
-      ? Math.max(0, Math.ceil((kothPhaseEnd - Date.now()) / 1000))
+    kothPhaseEnd != null && syncedNow < kothPhaseEnd
+      ? Math.max(0, Math.ceil((kothPhaseEnd - syncedNow) / 1000))
       : null;
   const kothPhase = events?.koth.phase;
   const kothDoorDelayMs = events?.koth.doorDelayMs ?? 60_000;
@@ -915,6 +942,20 @@ const ServerDetail = () => {
                   </span>
                 ) : null}
               </div>
+              {events?.koth.automationStarted && events.koth.status === "pending" && typeof events.koth.lobbyEndsAtMs === "number" && events.koth.lobbyEndsAtMs > syncedNow ? (
+                <p className="mt-2 text-xs text-muted-foreground font-mono tabular-nums">
+                  Lobby window closes in{" "}
+                  <span className="text-foreground font-semibold">{formatRemainMs(events.koth.lobbyEndsAtMs, syncedNow)}</span>
+                </p>
+              ) : null}
+              {events?.koth.automationStarted && events.koth.status === "none" && typeof events.koth.nextLobbyAtMs === "number" && events.koth.nextLobbyAtMs > syncedNow ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Next automatic lobby in{" "}
+                  <span className="text-foreground font-semibold font-mono tabular-nums">
+                    {formatRemainMs(events.koth.nextLobbyAtMs, syncedNow)}
+                  </span>
+                </p>
+              ) : null}
               {kothPhaseRemainSec != null && kothPhase ? (
                 <div
                   className={`mt-2 text-sm ${
@@ -1026,7 +1067,7 @@ const ServerDetail = () => {
                 <div className="mt-2 text-sm text-muted-foreground">
                   Starts in{" "}
                   <span className="font-mono tabular-nums text-foreground">
-                    {Math.max(0, Math.ceil((nuketown.lobbyEndsAtMs - Date.now()) / 1000))}s
+                    {Math.max(0, Math.ceil((nuketown.lobbyEndsAtMs - syncedNow) / 1000))}s
                   </span>
                 </div>
               ) : null}
@@ -1475,9 +1516,9 @@ const ServerDetail = () => {
                   <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
                     Ship is stopped at your configured coords. When the timer ends it will undock automatically.
                   </p>
-                  {typeof events.dockedCargo.phaseEndsAtMs === "number" && events.dockedCargo.phaseEndsAtMs > Date.now() ? (
+                  {typeof events.dockedCargo.phaseEndsAtMs === "number" && events.dockedCargo.phaseEndsAtMs > syncedNow ? (
                     <p className="mt-2 text-sm font-mono tabular-nums text-cyan-200/90">
-                      Undocks in <span className="font-semibold">{formatRemainMs(events.dockedCargo.phaseEndsAtMs)}</span>
+                      Undocks in <span className="font-semibold">{formatRemainMs(events.dockedCargo.phaseEndsAtMs, syncedNow)}</span>
                     </p>
                   ) : null}
                 </div>
@@ -1491,11 +1532,11 @@ const ServerDetail = () => {
                   {events?.dockedCargo?.automationStarted &&
                   events.dockedCargo.phase === "between" &&
                   typeof events.dockedCargo.phaseEndsAtMs === "number" &&
-                  events.dockedCargo.phaseEndsAtMs > Date.now() ? (
+                  events.dockedCargo.phaseEndsAtMs > syncedNow ? (
                     <p className="mt-2 text-sm font-mono tabular-nums text-muted-foreground">
                       Next dock in{" "}
                       <span className="text-foreground font-semibold">
-                        {formatRemainMs(events.dockedCargo.phaseEndsAtMs)}
+                        {formatRemainMs(events.dockedCargo.phaseEndsAtMs, syncedNow)}
                       </span>
                     </p>
                   ) : events?.dockedCargo?.automationStarted &&
@@ -1524,6 +1565,20 @@ const ServerDetail = () => {
                   </span>
                 ) : null}
               </div>
+              {events?.maze.automationStarted && events.maze.status === "pending" && typeof events.maze.lobbyEndsAtMs === "number" && events.maze.lobbyEndsAtMs > syncedNow ? (
+                <p className="mt-2 text-xs text-muted-foreground font-mono tabular-nums">
+                  Lobby window closes in{" "}
+                  <span className="text-foreground font-semibold">{formatRemainMs(events.maze.lobbyEndsAtMs, syncedNow)}</span>
+                </p>
+              ) : null}
+              {events?.maze.automationStarted && events.maze.status === "none" && typeof events.maze.nextLobbyAtMs === "number" && events.maze.nextLobbyAtMs > syncedNow ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Next automatic lobby in{" "}
+                  <span className="text-foreground font-semibold font-mono tabular-nums">
+                    {formatRemainMs(events.maze.nextLobbyAtMs, syncedNow)}
+                  </span>
+                </p>
+              ) : null}
               {events?.maze.status && events.maze.status !== "none" ? (
                 <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                   {myDiscordUserId && events.maze.participants.some((p) => String(p.discordUserId) === String(myDiscordUserId)) ? (

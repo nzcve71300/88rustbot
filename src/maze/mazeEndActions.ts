@@ -2,11 +2,11 @@ import type { Pool } from "mysql2/promise";
 import { config } from "../config.js";
 import { decryptSecret } from "../crypto/passwordVault.js";
 import {
-  deleteMazeEventAndClearConfig,
   getActiveMazeEvent,
   getMazeEventTopKillerWithLink,
   listMazeKillsDetailedForEvent,
   listMazeSpawnViews,
+  removeMazeEventAndApplyConfigOutcome,
   sumMazeTotalKillsForEvent,
 } from "../db/maze.js";
 import { getRustServerByIdForGuild } from "../db/rustServers.js";
@@ -56,7 +56,7 @@ export async function performMazeDelete(pool: Pool, guildRowId: number, serverId
     console.error("[maze-delete] failed to snapshot ended event:", err);
   }
 
-  await deleteMazeEventAndClearConfig(pool, guildRowId, serverId, active.id);
+  await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, serverId, active.id);
 
   return { ok: true, hadActive: true, stoppedRunner: stopped };
 }

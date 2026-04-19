@@ -9,8 +9,140 @@ export type MazeConfig = {
   announcementRoleId: string | null;
   spawnPoints: number;
   messageId: string | null;
+  howOftenHours: number | null;
+  durationMinutes: number | null;
+  kitName: string | null;
+  respawnEnabled: boolean;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
 };
 
+export type MazeConfigPatch = Partial<{
+  announcementChannelId: string;
+  announcementRoleId: string | null;
+  spawnPoints: number;
+  messageId: string | null;
+  howOftenHours: number | null;
+  durationMinutes: number | null;
+  kitName: string | null;
+  respawnEnabled: boolean;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
+}>;
+
+function rowToMazeConfig(r: Record<string, unknown>, rustServerId: number): MazeConfig {
+  return {
+    rustServerId,
+    announcementChannelId: String(r.announcementChannelId ?? ""),
+    announcementRoleId: r.announcementRoleId != null ? String(r.announcementRoleId) : null,
+    spawnPoints: Number(r.spawnPoints),
+    messageId: r.messageId != null ? String(r.messageId) : null,
+    howOftenHours: r.howOftenHours != null ? Number(r.howOftenHours) : null,
+    durationMinutes: r.durationMinutes != null ? Number(r.durationMinutes) : null,
+    kitName: r.kitName != null ? String(r.kitName) : null,
+    respawnEnabled: Number(r.respawnEnabled) === 1,
+    automationStarted: Number(r.automationStarted) === 1,
+    nextLobbyAtMs: r.nextLobbyAtMs != null ? Number(r.nextLobbyAtMs) : null,
+  };
+}
+
+async function fetchMazeConfigRow(
+  pool: Pool,
+  guildRowId: number,
+  rustServerId: number
+): Promise<MazeConfig | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT rust_server_id AS rustServerId,
+            CAST(announcement_channel_id AS CHAR) AS announcementChannelId,
+            CAST(announcement_role_id AS CHAR) AS announcementRoleId,
+            spawn_points AS spawnPoints,
+            CAST(message_id AS CHAR) AS messageId,
+            how_often_hours AS howOftenHours,
+            duration_minutes AS durationMinutes,
+            kit_name AS kitName,
+            respawn_enabled AS respawnEnabled,
+            automation_started AS automationStarted,
+            next_lobby_at_ms AS nextLobbyAtMs
+     FROM maze_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
+    { gid: guildRowId, sid: rustServerId }
+  );
+  const r = rows[0] as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return rowToMazeConfig(r, rustServerId);
+}
+
+export async function getMazeConfig(pool: Pool, guildRowId: number, rustServerId: number): Promise<MazeConfig | null> {
+  return fetchMazeConfigRow(pool, guildRowId, rustServerId);
+}
+
+export function isMazeAutomationConfigComplete(c: MazeConfig | null): boolean {
+  if (!c?.messageId) return false;
+  if (!c.howOftenHours || c.howOftenHours <= 0) return false;
+  if (!c.durationMinutes || c.durationMinutes < 1) return false;
+  if (!c.kitName?.trim()) return false;
+  return true;
+}
+
+export async function mergeMazeConfig(
+  pool: Pool,
+  guildRowId: number,
+  rustServerId: number,
+  patch: MazeConfigPatch
+): Promise<MazeConfig> {
+  const cur = await fetchMazeConfigRow(pool, guildRowId, rustServerId);
+  const merged: MazeConfig = {
+    rustServerId,
+    announcementChannelId:
+      patch.announcementChannelId !== undefined ? patch.announcementChannelId : cur?.announcementChannelId ?? "",
+    announcementRoleId:
+      patch.announcementRoleId !== undefined ? patch.announcementRoleId : cur?.announcementRoleId ?? null,
+    spawnPoints: patch.spawnPoints !== undefined ? patch.spawnPoints : cur?.spawnPoints ?? 1,
+    messageId: patch.messageId !== undefined ? patch.messageId : cur?.messageId ?? null,
+    howOftenHours: patch.howOftenHours !== undefined ? patch.howOftenHours : cur?.howOftenHours ?? null,
+    durationMinutes: patch.durationMinutes !== undefined ? patch.durationMinutes : cur?.durationMinutes ?? null,
+    kitName: patch.kitName !== undefined ? patch.kitName : cur?.kitName ?? null,
+    respawnEnabled: patch.respawnEnabled !== undefined ? patch.respawnEnabled : cur?.respawnEnabled ?? false,
+    automationStarted: patch.automationStarted !== undefined ? patch.automationStarted : cur?.automationStarted ?? false,
+    nextLobbyAtMs: patch.nextLobbyAtMs !== undefined ? patch.nextLobbyAtMs : cur?.nextLobbyAtMs ?? null,
+  };
+  if (!merged.automationStarted) {
+    merged.nextLobbyAtMs = null;
+  }
+
+  await pool.query<ResultSetHeader>(
+    `INSERT INTO maze_configs (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, spawn_points, message_id,
+        how_often_hours, duration_minutes, kit_name, respawn_enabled, automation_started, next_lobby_at_ms)
+     VALUES (:gid, :sid, :chan, :role, :sp, :msg, :hoh, :dur, :kit, :re, :ast, :nextMs)
+     ON DUPLICATE KEY UPDATE
+       announcement_channel_id = VALUES(announcement_channel_id),
+       announcement_role_id = VALUES(announcement_role_id),
+       spawn_points = VALUES(spawn_points),
+       message_id = VALUES(message_id),
+       how_often_hours = VALUES(how_often_hours),
+       duration_minutes = VALUES(duration_minutes),
+       kit_name = VALUES(kit_name),
+       respawn_enabled = VALUES(respawn_enabled),
+       automation_started = VALUES(automation_started),
+       next_lobby_at_ms = VALUES(next_lobby_at_ms)`,
+    {
+      gid: guildRowId,
+      sid: rustServerId,
+      chan: merged.announcementChannelId,
+      role: merged.announcementRoleId,
+      sp: merged.spawnPoints,
+      msg: merged.messageId,
+      hoh: merged.howOftenHours,
+      dur: merged.durationMinutes,
+      kit: merged.kitName,
+      re: merged.respawnEnabled ? 1 : 0,
+      ast: merged.automationStarted ? 1 : 0,
+      nextMs: merged.nextLobbyAtMs,
+    }
+  );
+  return merged;
+}
+
+/** @deprecated Prefer mergeMazeConfig — kept for call sites that only set channel/role/spawns/message */
 export async function upsertMazeConfig(
   pool: Pool,
   guildRowId: number,
@@ -20,38 +152,12 @@ export async function upsertMazeConfig(
   spawnPoints: number,
   messageId: string | null
 ): Promise<void> {
-  await pool.query<ResultSetHeader>(
-    `INSERT INTO maze_configs (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, spawn_points, message_id)
-     VALUES (:gid, :sid, :chan, :role, :sp, :msg)
-     ON DUPLICATE KEY UPDATE
-       announcement_channel_id = VALUES(announcement_channel_id),
-       announcement_role_id = VALUES(announcement_role_id),
-       spawn_points = VALUES(spawn_points),
-       message_id = VALUES(message_id)`,
-    { gid: guildRowId, sid: rustServerId, chan: announcementChannelId, role: announcementRoleId, sp: spawnPoints, msg: messageId }
-  );
-}
-
-export async function getMazeConfig(pool: Pool, guildRowId: number, rustServerId: number): Promise<MazeConfig | null> {
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT rust_server_id AS rustServerId,
-            CAST(announcement_channel_id AS CHAR) AS announcementChannelId,
-            CAST(announcement_role_id AS CHAR) AS announcementRoleId,
-            spawn_points AS spawnPoints,
-            CAST(message_id AS CHAR) AS messageId
-     FROM maze_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
-    { gid: guildRowId, sid: rustServerId }
-  );
-  const r = rows[0] as MazeConfig | undefined;
-  return r
-    ? {
-        rustServerId: Number(r.rustServerId),
-        announcementChannelId: String(r.announcementChannelId),
-        announcementRoleId: r.announcementRoleId ? String(r.announcementRoleId) : null,
-        spawnPoints: Number(r.spawnPoints),
-        messageId: r.messageId ? String(r.messageId) : null,
-      }
-    : null;
+  await mergeMazeConfig(pool, guildRowId, rustServerId, {
+    announcementChannelId,
+    announcementRoleId,
+    spawnPoints,
+    messageId,
+  });
 }
 
 export async function getActiveMazeEvent(
@@ -74,6 +180,7 @@ export type ActiveMazeEventMeta = {
   status: "lobby" | "running";
   durationMinutes: number | null;
   startedAtMs: number | null;
+  lobbyEndsAtMs: number | null;
 };
 
 export async function getActiveMazeEventMeta(
@@ -84,7 +191,8 @@ export async function getActiveMazeEventMeta(
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT id, status,
             duration_minutes AS durationMinutes,
-            CASE WHEN started_at IS NULL THEN NULL ELSE UNIX_TIMESTAMP(started_at) * 1000 END AS startedAtMs
+            CASE WHEN started_at IS NULL THEN NULL ELSE UNIX_TIMESTAMP(started_at) * 1000 END AS startedAtMs,
+            CASE WHEN lobby_ends_at IS NULL THEN NULL ELSE UNIX_TIMESTAMP(lobby_ends_at) * 1000 END AS lobbyEndsAtMs
      FROM maze_events
      WHERE guild_id = :gid AND rust_server_id = :sid AND status IN ('lobby','running')
      ORDER BY id DESC LIMIT 1`,
@@ -97,6 +205,7 @@ export async function getActiveMazeEventMeta(
         status: "lobby" | "running";
         durationMinutes: number | null;
         startedAtMs: number | null;
+        lobbyEndsAtMs: number | null;
       }
     | undefined;
   if (!r) return null;
@@ -106,6 +215,7 @@ export async function getActiveMazeEventMeta(
     status: r.status,
     durationMinutes: r.durationMinutes != null ? Number(r.durationMinutes) : null,
     startedAtMs: r.startedAtMs != null ? Number(r.startedAtMs) : null,
+    lobbyEndsAtMs: r.lobbyEndsAtMs != null ? Number(r.lobbyEndsAtMs) : null,
   };
 }
 
@@ -153,7 +263,8 @@ export async function startMazeEvent(
        duration_minutes = :dm,
        kit_name = :kit,
        respawn_enabled = :re,
-       started_at = CURRENT_TIMESTAMP
+       started_at = CURRENT_TIMESTAMP,
+       lobby_ends_at = NULL
      WHERE id = :eid AND status = 'lobby'`,
     { eid: eventId, dm: durationMinutes, kit: kitName, re: respawnEnabled ? 1 : 0 }
   );
@@ -167,20 +278,65 @@ export async function finishMazeEvent(pool: Pool, eventId: number): Promise<void
   );
 }
 
+export async function deleteMazeEventRow(pool: Pool, guildRowId: number, eventId: number): Promise<void> {
+  await pool.query<ResultSetHeader>(`DELETE FROM maze_events WHERE id = :eid AND guild_id = :gid`, {
+    eid: eventId,
+    gid: guildRowId,
+  });
+}
+
+/**
+ * Removes the maze event row. If automation is enabled, schedules the next lobby; otherwise deletes maze config
+ * (same pattern as KOTH).
+ */
+export async function removeMazeEventAndApplyConfigOutcome(
+  pool: Pool,
+  guildRowId: number,
+  rustServerId: number,
+  eventId: number
+): Promise<void> {
+  const cfg = await getMazeConfig(pool, guildRowId, rustServerId);
+  await deleteMazeEventRow(pool, guildRowId, eventId);
+  if (cfg?.automationStarted && cfg.howOftenHours != null && cfg.howOftenHours > 0) {
+    await mergeMazeConfig(pool, guildRowId, rustServerId, {
+      nextLobbyAtMs: Date.now() + cfg.howOftenHours * 3600_000,
+    });
+  } else {
+    await pool.query<ResultSetHeader>(`DELETE FROM maze_configs WHERE guild_id = :gid AND rust_server_id = :sid`, {
+      gid: guildRowId,
+      sid: rustServerId,
+    });
+  }
+}
+
+/** @deprecated Use removeMazeEventAndApplyConfigOutcome */
 export async function deleteMazeEventAndClearConfig(
   pool: Pool,
   guildRowId: number,
   rustServerId: number,
   eventId: number
 ): Promise<void> {
+  await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, rustServerId, eventId);
+}
+
+export async function setMazeLobbyEndsInMinutes(pool: Pool, eventId: number, minutes: number): Promise<void> {
+  const mins = Math.max(1, Math.floor(minutes));
   await pool.query<ResultSetHeader>(
-    `DELETE FROM maze_events WHERE id = :eid AND guild_id = :gid`,
-    { eid: eventId, gid: guildRowId }
+    `UPDATE maze_events SET lobby_ends_at = DATE_ADD(NOW(), INTERVAL :mins MINUTE) WHERE id = :eid`,
+    { eid: eventId, mins }
   );
-  await pool.query<ResultSetHeader>(
-    `DELETE FROM maze_configs WHERE guild_id = :gid AND rust_server_id = :sid`,
-    { gid: guildRowId, sid: rustServerId }
+}
+
+export async function listMazeAutomationServers(
+  pool: Pool
+): Promise<{ guildRowId: number; rustServerId: number }[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT guild_id AS guildRowId, rust_server_id AS rustServerId FROM maze_configs WHERE automation_started = 1`
   );
+  return (rows as { guildRowId: number; rustServerId: number }[]).map((r) => ({
+    guildRowId: Number(r.guildRowId),
+    rustServerId: Number(r.rustServerId),
+  }));
 }
 
 export async function getMazeEventRespawnEnabled(pool: Pool, eventId: number): Promise<boolean> {

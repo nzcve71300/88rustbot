@@ -15,6 +15,20 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
+type MazeConfigPayload = {
+  announcementChannelId: string;
+  announcementRoleId: string | null;
+  spawnPoints: number;
+  messageId: string | null;
+  howOftenHours: number | null;
+  durationMinutes: number | null;
+  kitName: string | null;
+  respawnEnabled: boolean;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
+  setupComplete: boolean;
+};
+
 export function MazeAdminPanel() {
   const { serverId } = useParams();
   const sid = Number.parseInt(serverId ?? "", 10);
@@ -36,13 +50,35 @@ export function MazeAdminPanel() {
     enabled: Number.isFinite(sid) && sid > 0,
   });
 
+  const { data: mazeConfigRes, refetch: refetchMazeConfig } = useQuery({
+    queryKey: ["admin-maze-config", sid],
+    queryFn: async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/maze/config`);
+      const j = (await res.json()) as { ok?: boolean; config?: MazeConfigPayload | null };
+      return j.config ?? null;
+    },
+    enabled: Number.isFinite(sid) && sid > 0,
+  });
+
   const [channelId, setChannelId] = useState("");
   const [roleId, setRoleId] = useState("");
   const [spawnPts, setSpawnPts] = useState("5");
-
-  const [respawn, setRespawn] = useState("no");
+  const [howOften, setHowOften] = useState("6");
   const [dur, setDur] = useState("30");
+  const [respawn, setRespawn] = useState("no");
   const [kit, setKit] = useState("");
+
+  useEffect(() => {
+    const c = mazeConfigRes;
+    if (!c) return;
+    setChannelId(c.announcementChannelId ?? "");
+    setRoleId(c.announcementRoleId ?? "");
+    setSpawnPts(String(c.spawnPoints ?? 5));
+    setHowOften(String(c.howOftenHours ?? 6));
+    setDur(String(c.durationMinutes ?? 30));
+    setRespawn(c.respawnEnabled ? "yes" : "no");
+    setKit(c.kitName ?? "");
+  }, [mazeConfigRes]);
 
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
   useEffect(() => {
@@ -60,19 +96,27 @@ export function MazeAdminPanel() {
   const doSetup = () =>
     busy(async () => {
       const sp = Number.parseInt(spawnPts, 10);
+      const h = Number.parseFloat(howOften);
+      const d = Number.parseInt(dur, 10);
       const res = await adminFetch(`/api/admin/server/${sid}/maze/setup`, {
         method: "POST",
         body: JSON.stringify({
           announcementChannelId: channelId,
           spawnPoints: sp,
           announcementRoleId: roleId,
+          howOftenHours: h,
+          durationMinutes: d,
+          kitName: kit.trim(),
+          respawn,
         }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((j as { error?: string }).error ?? "Setup failed");
-      toast.success("Maze configured — lobby posted.");
+      toast.success("Maze saved — new lobby message posted.");
       void refetchEvents();
+      void refetchMazeConfig();
       void qc.invalidateQueries({ queryKey: ["admin-maze-events", sid] });
+      void qc.invalidateQueries({ queryKey: ["admin-maze-config", sid] });
     });
 
   const doEnd = () =>
@@ -83,23 +127,24 @@ export function MazeAdminPanel() {
       toast.success("Maze ended / cleared.");
       setSelectedEvent(null);
       void refetchEvents();
+      void refetchMazeConfig();
     });
 
-  const doStart = () =>
+  const doStartAutomation = (force: boolean) =>
     busy(async () => {
-      const d = Number.parseInt(dur, 10);
       const res = await adminFetch(`/api/admin/server/${sid}/maze/start`, {
         method: "POST",
-        body: JSON.stringify({
-          respawn,
-          durationMinutes: d,
-          kitName: kit.trim(),
-        }),
+        body: JSON.stringify({ force }),
       });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((j as { error?: string }).error ?? "Start failed");
-      toast.success("Maze event started.");
+      const j = (await res.json().catch(() => ({}))) as { error?: string; needsForce?: boolean };
+      if (res.status === 409 && j.needsForce) {
+        toast.message("Already running — use “Force start” to reset the schedule.");
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Start failed");
+      toast.success(force ? "Schedule reset — next lobby soon." : "Maze automation enabled.");
       void refetchEvents();
+      void refetchMazeConfig();
     });
 
   if (!Number.isFinite(sid) || sid < 1) {
@@ -108,13 +153,16 @@ export function MazeAdminPanel() {
 
   const ch = meta?.channels ?? [];
   const roles = meta?.roles ?? [];
+  const autoOn = mazeConfigRes?.automationStarted === true;
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
       <div>
         <h2 className="text-2xl font-rajdhani font-bold text-foreground">MAZE System</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Configure the maze lobby, save spawn coordinates under Manage Positions, then start the run.
+          Configure announcements and match defaults (duration, kit, respawn), then enable <strong>automation</strong> once.
+          Lobbies open on a schedule; players have up to <strong>15 minutes</strong> to join (or all spawn slots can fill to
+          start early).
         </p>
       </div>
 
@@ -157,7 +205,10 @@ export function MazeAdminPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="font-rajdhani text-lg">Setup maze</CardTitle>
-          <CardDescription>Posts the lobby embed and opens join (spawn slots 1–10).</CardDescription>
+          <CardDescription>
+            Posts the lobby embed and saves automation fields. Maze spawn world positions are set in{" "}
+            <strong>Manage positions</strong> (maze spawn-point 1…10).
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
@@ -205,20 +256,14 @@ export function MazeAdminPanel() {
               </SelectContent>
             </Select>
           </div>
-          <div className="sm:col-span-2">
-            <Button onClick={() => void doSetup()}>Save &amp; post setup</Button>
+          <div className="space-y-2">
+            <Label>How often (hours)</Label>
+            <Input value={howOften} onChange={(e) => setHowOften(e.target.value)} placeholder="e.g. 6" />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-rajdhani text-lg">Start maze</CardTitle>
-          <CardDescription>
-            Requires lobby + /maze-join players + all maze spawn coordinates saved (Manage Positions).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Duration (minutes, 1–180)</Label>
+            <Input value={dur} onChange={(e) => setDur(e.target.value.replace(/\D/g, ""))} />
+          </div>
           <div className="space-y-2">
             <Label>Respawn mode</Label>
             <Select value={respawn} onValueChange={setRespawn}>
@@ -231,17 +276,39 @@ export function MazeAdminPanel() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label>Duration (minutes, 1–180)</Label>
-            <Input value={dur} onChange={(e) => setDur(e.target.value.replace(/\D/g, ""))} />
-          </div>
           <div className="space-y-2 sm:col-span-2">
             <Label>Kit name</Label>
             <Input value={kit} onChange={(e) => setKit(e.target.value)} placeholder="Exact kit on Rust server" />
           </div>
           <div className="sm:col-span-2">
-            <Button onClick={() => void doStart()}>Start maze</Button>
+            <Button onClick={() => void doSetup()}>Save &amp; post setup</Button>
+            {mazeConfigRes?.setupComplete === false ? (
+              <p className="text-xs text-amber-500/90 mt-2">Fill all fields so automation can start.</p>
+            ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-rajdhani text-lg">Automation</CardTitle>
+          <CardDescription>
+            Run once to begin scheduled lobbies. Use force if automation is already on and you want the next lobby
+            immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row gap-2 flex-wrap">
+          <Button onClick={() => void doStartAutomation(false)} disabled={!mazeConfigRes?.setupComplete}>
+            {autoOn ? "Already enabled" : "Enable Maze automation"}
+          </Button>
+          <Button variant="secondary" onClick={() => void doStartAutomation(true)} disabled={!mazeConfigRes?.setupComplete}>
+            Force next lobby now
+          </Button>
+          {autoOn ? (
+            <span className="text-xs text-emerald-400/90 self-center">Automation is ON</span>
+          ) : (
+            <span className="text-xs text-muted-foreground self-center">Automation is OFF</span>
+          )}
         </CardContent>
       </Card>
     </div>

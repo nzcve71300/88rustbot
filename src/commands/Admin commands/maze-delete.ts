@@ -58,6 +58,7 @@ export const mazeDeleteCommand = {
     }
 
     const cfgBefore = await getMazeConfig(pool, guildRowId, serverId);
+    const hadAutomation = cfgBefore?.automationStarted === true;
     const result = await performMazeDelete(pool, guildRowId, serverId);
     if (!result.ok) {
       await interaction.editReply({ embeds: [baseEmbed().setTitle("Error").setDescription(result.error)] });
@@ -65,8 +66,12 @@ export const mazeDeleteCommand = {
     }
 
     const channelNote = cfgBefore?.announcementChannelId
-      ? ` The old announcement was in <#${cfgBefore.announcementChannelId}> (message may still exist).`
+      ? ` The announcement channel was <#${cfgBefore.announcementChannelId}> (message may still exist).`
       : "";
+
+    const configNote = hadAutomation
+      ? `Automation config is preserved — the **next lobby** is scheduled per **How often**. Spawn coordinates from **/manage-positions maze-spawn** are kept.${channelNote}`
+      : `Maze config was cleared. Run **/maze-setup** again before the next event. Spawn coordinates from **/manage-positions maze-spawn** are kept.${channelNote}`;
 
     await interaction.editReply({
       embeds: [
@@ -78,7 +83,7 @@ export const mazeDeleteCommand = {
               `**Was:** ${active.status}`,
               result.stoppedRunner ? "**Runner:** abort signal sent" : "**Runner:** not running (lobby only or other process)",
               "",
-              `Maze config was cleared. Run **/maze-setup** again before the next event. Spawn coordinates from **/manage-positions maze-spawn** are kept.${channelNote}`,
+              configNote,
             ].join("\n")
           ),
       ],

@@ -31,8 +31,14 @@ const MIN_GATE_FILL_RATIO = 0.5;
 const tickLocks = new Set<number>();
 let cronJob: cron.ScheduledTask | null = null;
 
+/**
+ * At least 50% of gates must have a clan, but KOTH needs two sides — so when there are 2+ gates,
+ * we never accept fewer than 2 filled gates (e.g. 2 gates @ 50% would otherwise round to only 1).
+ */
 function minGatesRequired(totalGates: number): number {
-  return Math.max(1, Math.ceil(totalGates * MIN_GATE_FILL_RATIO));
+  const byRatio = Math.ceil(totalGates * MIN_GATE_FILL_RATIO);
+  const minForCompetition = totalGates >= 2 ? 2 : 1;
+  return Math.max(byRatio, minForCompetition);
 }
 
 async function announceText(client: Client, channelId: string, text: string): Promise<void> {
@@ -225,7 +231,7 @@ async function processLobbyPhase(
       guildRowId,
       rustServerId,
       eventId,
-      `fewer than **${MIN_GATE_FILL_RATIO * 100}%** of gates had clans after ${LOBBY_MAX_MINUTES} minutes.`
+      `after ${LOBBY_MAX_MINUTES} minutes, only **${assigned}** of **${gatesTotal}** gate(s) had clans (need at least **${minGates}** — half the gates, and at least **two** gates when multiple gates are configured).`
     );
     return;
   }

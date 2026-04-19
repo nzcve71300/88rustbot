@@ -62,7 +62,7 @@ import {
   removeMazeEventMember,
 } from "../db/maze.js";
 import { getDockedCargoConfig, isDockedCargoConfigComplete } from "../db/dockedCargo.js";
-import { getDockedCargoRuntimePhase } from "../dockedCargo/runner.js";
+import { getDockedCargoRuntimePhaseFromConfig } from "../dockedCargo/runner.js";
 import {
   getLinkByDiscordUser,
   getLinkByIngameNameCi,
@@ -899,8 +899,9 @@ export function startCommandCenterApi(client?: Client): void {
           dockedCargo: {
             configured: isDockedCargoConfigComplete(dCfg),
             automationStarted: dCfg?.automationStarted ?? false,
-            phase: getDockedCargoRuntimePhase(serverId),
-            active: getDockedCargoRuntimePhase(serverId) === "docked",
+            phase: getDockedCargoRuntimePhaseFromConfig(dCfg),
+            active: getDockedCargoRuntimePhaseFromConfig(dCfg) === "docked",
+            phaseEndsAtMs: dCfg?.phaseDeadlineMs ?? null,
           },
         });
         return;

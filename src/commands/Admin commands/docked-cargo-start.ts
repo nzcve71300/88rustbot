@@ -7,10 +7,10 @@ import {
 } from "discord.js";
 import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
-import { getDockedCargoConfig, isDockedCargoConfigComplete, mergeDockedCargoConfig } from "../../db/dockedCargo.js";
+import { getDockedCargoConfig, isDockedCargoConfigComplete } from "../../db/dockedCargo.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
-import { isDockedCargoLoopRunning, startDockedCargoAutomation } from "../../dockedCargo/runner.js";
+import { startDockedCargoAutomation } from "../../dockedCargo/runner.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 
@@ -59,7 +59,7 @@ export const dockedCargoStartCommand = {
       return;
     }
 
-    if (cfg.automationStarted && isDockedCargoLoopRunning(rustServerId)) {
+    if (cfg.automationStarted) {
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(`dc:rs:y:${rustServerId}`)
@@ -84,12 +84,11 @@ export const dockedCargoStartCommand = {
       return;
     }
 
-    const started = startDockedCargoAutomation(pool, guildRowId, rustServerId, interaction.client);
+    const started = await startDockedCargoAutomation(pool, guildRowId, rustServerId, interaction.client);
     if (!started.ok) {
       await interaction.reply({ content: started.error ?? "Could not start.", ephemeral: true });
       return;
     }
-    await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: true });
     await interaction.reply({
       embeds: [baseEmbed().setTitle("Docked Cargo started").setDescription("Automation is running.")],
       ephemeral: true,

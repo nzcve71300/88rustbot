@@ -1,6 +1,20 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useMemo, type ReactNode } from "react";
-import { ArrowLeft, Ghost, Users, Map as MapIcon, Timer, Trophy, Activity, User, Swords } from "lucide-react";
+import {
+  ArrowLeft,
+  Ghost,
+  Users,
+  Map as MapIcon,
+  Timer,
+  Trophy,
+  Activity,
+  User,
+  Swords,
+  Flame,
+  Crosshair,
+  Waypoints,
+  Ship,
+} from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchServers } from "@/lib/servers";
@@ -67,6 +81,17 @@ function neonEventStatusClass(label: string): string {
     return "text-red-400/90 font-semibold drop-shadow-[0_0_8px_rgba(248,113,113,0.45)]";
   }
   return "text-cyan-300/90 font-medium drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]";
+}
+
+function formatRemainMs(untilMs: number): string {
+  const ms = Math.max(0, untilMs - Date.now());
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
 }
 
 const ServerDetail = () => {
@@ -196,6 +221,15 @@ const ServerDetail = () => {
     const id = window.setInterval(() => setKothPhaseTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [events?.koth.phaseEndsAtMs]);
+
+  const [dockedTick, setDockedTick] = useState(0);
+  useEffect(() => {
+    const end = events?.dockedCargo?.phaseEndsAtMs;
+    if (end == null || end <= Date.now()) return;
+    const id = window.setInterval(() => setDockedTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [events?.dockedCargo?.phaseEndsAtMs]);
+  void dockedTick;
 
   const [nuketownLobbyTick, setNuketownLobbyTick] = useState(0);
   useEffect(() => {
@@ -857,10 +891,13 @@ const ServerDetail = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-border bg-background/40 p-4">
-              <div className="flex items-center justify-between">
-                <div className="font-rajdhani font-bold text-foreground">KOTH EVENT</div>
-                <span className={cn("text-xs", neonEventStatusClass(kothStatusLabel))}>{kothStatusLabel}</span>
+            <div className="rounded-lg border border-amber-500/30 bg-gradient-to-br from-amber-500/[0.09] via-background/70 to-orange-950/20 p-4 shadow-sm shadow-amber-500/10">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Flame className="h-5 w-5 shrink-0 text-amber-400" aria-hidden />
+                  <div className="font-rajdhani font-bold text-foreground tracking-wide">KOTH EVENT</div>
+                </div>
+                <span className={cn("text-xs shrink-0", neonEventStatusClass(kothStatusLabel))}>{kothStatusLabel}</span>
               </div>
               {events?.koth.status === "active" &&
               typeof events.koth.currentWave === "number" &&
@@ -967,10 +1004,15 @@ const ServerDetail = () => {
               )}
             </div>
 
-            <div className="rounded-lg border border-border bg-background/40 p-4">
-              <div className="flex items-center justify-between">
-                <div className="font-rajdhani font-bold text-foreground">NUKETOWN</div>
-                <span className={cn("text-xs", neonEventStatusClass(nuketownStatusLabel))}>{nuketownStatusLabel}</span>
+            <div className="rounded-lg border border-orange-500/30 bg-gradient-to-br from-orange-500/[0.1] via-background/70 to-red-950/15 p-4 shadow-sm shadow-orange-500/10">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Crosshair className="h-5 w-5 shrink-0 text-orange-400" aria-hidden />
+                  <div className="font-rajdhani font-bold text-foreground tracking-wide">NUKETOWN</div>
+                </div>
+                <span className={cn("text-xs shrink-0", neonEventStatusClass(nuketownStatusLabel))}>
+                  {nuketownStatusLabel}
+                </span>
               </div>
               <div className="mt-2 text-sm text-muted-foreground">
                 Joined: <span className="text-foreground font-semibold">{events ? nuketown.joined : "—"}</span>
@@ -1413,11 +1455,14 @@ const ServerDetail = () => {
                 "rounded-lg border p-4 transition-shadow",
                 events?.dockedCargo?.active
                   ? "border-cyan-500/50 bg-gradient-to-br from-cyan-500/15 via-background/80 to-violet-500/10 shadow-[0_0_24px_rgba(34,211,238,0.18)]"
-                  : "border-border bg-background/40"
+                  : "border-cyan-500/20 bg-gradient-to-br from-cyan-500/[0.05] to-background/50"
               )}
             >
               <div className="flex items-center justify-between gap-2">
-                <div className="font-rajdhani font-bold text-foreground tracking-wide">DOCKED CARGO</div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Ship className="h-5 w-5 shrink-0 text-cyan-400" aria-hidden />
+                  <div className="font-rajdhani font-bold text-foreground tracking-wide">DOCKED CARGO</div>
+                </div>
                 <span className={cn("text-xs shrink-0", neonEventStatusClass(dockedCargoStatusLabel))}>
                   {dockedCargoStatusLabel}
                 </span>
@@ -1430,20 +1475,45 @@ const ServerDetail = () => {
                   <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
                     Ship is stopped at your configured coords. When the timer ends it will undock automatically.
                   </p>
+                  {typeof events.dockedCargo.phaseEndsAtMs === "number" && events.dockedCargo.phaseEndsAtMs > Date.now() ? (
+                    <p className="mt-2 text-sm font-mono tabular-nums text-cyan-200/90">
+                      Undocks in <span className="font-semibold">{formatRemainMs(events.dockedCargo.phaseEndsAtMs)}</span>
+                    </p>
+                  ) : null}
                 </div>
               ) : (
-                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-                  {events?.dockedCargo?.configured
-                    ? "Automation is configured. When a run starts, status flips to Active here."
-                    : "Admins configure this in Discord or the admin panel."}
-                </p>
+                <>
+                  <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                    {events?.dockedCargo?.configured
+                      ? "Automation is configured. Status and timers update live while the bot runs."
+                      : "Admins configure this in Discord or the admin panel."}
+                  </p>
+                  {events?.dockedCargo?.automationStarted &&
+                  events.dockedCargo.phase === "between" &&
+                  typeof events.dockedCargo.phaseEndsAtMs === "number" &&
+                  events.dockedCargo.phaseEndsAtMs > Date.now() ? (
+                    <p className="mt-2 text-sm font-mono tabular-nums text-muted-foreground">
+                      Next dock in{" "}
+                      <span className="text-foreground font-semibold">
+                        {formatRemainMs(events.dockedCargo.phaseEndsAtMs)}
+                      </span>
+                    </p>
+                  ) : events?.dockedCargo?.automationStarted &&
+                    events.dockedCargo.phase === "between" &&
+                    events.dockedCargo.phaseEndsAtMs == null ? (
+                    <p className="mt-2 text-xs text-amber-400/90">Scheduling next run…</p>
+                  ) : null}
+                </>
               )}
             </div>
 
-            <div className="rounded-lg border border-border bg-background/40 p-4">
-              <div className="flex items-center justify-between">
-                <div className="font-rajdhani font-bold text-foreground">MAZE EVENT</div>
-                <span className={cn("text-xs", neonEventStatusClass(mazeStatusLabel))}>{mazeStatusLabel}</span>
+            <div className="rounded-lg border border-emerald-500/30 bg-gradient-to-br from-emerald-500/[0.09] via-background/70 to-teal-950/20 p-4 shadow-sm shadow-emerald-500/10">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Waypoints className="h-5 w-5 shrink-0 text-emerald-400" aria-hidden />
+                  <div className="font-rajdhani font-bold text-foreground tracking-wide">MAZE EVENT</div>
+                </div>
+                <span className={cn("text-xs shrink-0", neonEventStatusClass(mazeStatusLabel))}>{mazeStatusLabel}</span>
               </div>
               <div className="mt-2 text-sm text-muted-foreground">
                 Joined: <span className="text-foreground font-semibold">{events?.maze.joined ?? "—"}</span>

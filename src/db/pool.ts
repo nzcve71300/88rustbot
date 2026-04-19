@@ -590,6 +590,10 @@ export async function ensureSchema(): Promise<void> {
     `);
 
     await ignoreDup("ALTER TABLE docked_cargo_configs ADD COLUMN announcement_role_id VARCHAR(32) NULL");
+    await ignoreDup(
+      "ALTER TABLE docked_cargo_configs ADD COLUMN automation_phase VARCHAR(16) NULL COMMENT 'docked|between'"
+    );
+    await ignoreDup("ALTER TABLE docked_cargo_configs ADD COLUMN phase_deadline_ms BIGINT UNSIGNED NULL");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS site_inbox (

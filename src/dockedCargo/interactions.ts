@@ -389,7 +389,9 @@ export async function handleDockedCargoRestart(interaction: ButtonInteraction): 
     return;
   }
 
-  const started = startDockedCargoAutomation(pool, guildRowId, rustServerId, interaction.client, { force: true });
+  const started = await startDockedCargoAutomation(pool, guildRowId, rustServerId, interaction.client, {
+    force: true,
+  });
   if (!started.ok) {
     await interaction.update({
       content: started.error ?? "Could not restart automation.",
@@ -398,7 +400,6 @@ export async function handleDockedCargoRestart(interaction: ButtonInteraction): 
     });
     return;
   }
-  await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: true });
   await interaction.update({
     embeds: [
       baseEmbed()

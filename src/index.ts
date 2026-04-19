@@ -25,6 +25,7 @@ import {
   handleDockedCargoRoleSelect,
 } from "./dockedCargo/interactions.js";
 import { handleOneV1Accept, handleOneV1Duck, isOneV1AcceptButton, isOneV1DuckButton } from "./onev1/acceptFlow.js";
+import { initDockedCargoScheduler } from "./dockedCargo/runner.js";
 
 async function main() {
   await ensureSchema();
@@ -58,6 +59,8 @@ async function main() {
 
     // Optional: website API (used by Netlify to fetch real servers).
     startCommandCenterApi(client);
+
+    initDockedCargoScheduler(pool, client);
 
     // Keep clan invite table clean (24h expiry).
     setInterval(() => {

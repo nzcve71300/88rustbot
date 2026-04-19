@@ -1,5 +1,7 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 
+export type DockedCargoAutomationPhase = "docked" | "between";
+
 export type DockedCargoConfigRow = {
   guildId: number;
   rustServerId: number;
@@ -15,6 +17,9 @@ export type DockedCargoConfigRow = {
   announcementChannelId: string | null;
   announcementRoleId: string | null;
   automationStarted: boolean;
+  /** Persisted schedule state for cron-driven automation (null = spawn on next tick or retry backoff). */
+  automationPhase: DockedCargoAutomationPhase | null;
+  phaseDeadlineMs: number | null;
 };
 
 function rowToConfig(r: Record<string, unknown>): DockedCargoConfigRow {
@@ -33,6 +38,11 @@ function rowToConfig(r: Record<string, unknown>): DockedCargoConfigRow {
     announcementChannelId: r.announcement_channel_id != null ? String(r.announcement_channel_id) : null,
     announcementRoleId: r.announcement_role_id != null ? String(r.announcement_role_id) : null,
     automationStarted: Number(r.automation_started) === 1,
+    automationPhase:
+      r.automation_phase === "docked" || r.automation_phase === "between"
+        ? (r.automation_phase as DockedCargoAutomationPhase)
+        : null,
+    phaseDeadlineMs: r.phase_deadline_ms != null ? Number(r.phase_deadline_ms) : null,
   };
 }
 
@@ -43,7 +53,8 @@ export async function getDockedCargoConfig(
 ): Promise<DockedCargoConfigRow | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT guild_id, rust_server_id, coord_x, coord_y, coord_z, how_often_hours, in_game_message,
-            say_enabled, leave_message, locked_crates, time_docked_minutes, announcement_channel_id, announcement_role_id, automation_started
+            say_enabled, leave_message, locked_crates, time_docked_minutes, announcement_channel_id, announcement_role_id,
+            automation_started, automation_phase, phase_deadline_ms
      FROM docked_cargo_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
     { gid: guildRowId, sid: rustServerId }
   );
@@ -64,6 +75,8 @@ export type DockedCargoPatch = Partial<{
   announcementChannelId: string | null;
   announcementRoleId: string | null;
   automationStarted: boolean;
+  automationPhase: DockedCargoAutomationPhase | null;
+  phaseDeadlineMs: number | null;
 }>;
 
 export async function mergeDockedCargoConfig(
@@ -90,13 +103,21 @@ export async function mergeDockedCargoConfig(
     announcementRoleId:
       patch.announcementRoleId !== undefined ? patch.announcementRoleId : cur?.announcementRoleId ?? null,
     automationStarted: patch.automationStarted !== undefined ? patch.automationStarted : cur?.automationStarted ?? false,
+    automationPhase: patch.automationPhase !== undefined ? patch.automationPhase : cur?.automationPhase ?? null,
+    phaseDeadlineMs: patch.phaseDeadlineMs !== undefined ? patch.phaseDeadlineMs : cur?.phaseDeadlineMs ?? null,
   };
+
+  if (!merged.automationStarted) {
+    merged.automationPhase = null;
+    merged.phaseDeadlineMs = null;
+  }
 
   await pool.query<ResultSetHeader>(
     `INSERT INTO docked_cargo_configs
       (guild_id, rust_server_id, coord_x, coord_y, coord_z, how_often_hours, in_game_message, say_enabled,
-       leave_message, locked_crates, time_docked_minutes, announcement_channel_id, announcement_role_id, automation_started)
-     VALUES (:gid, :sid, :cx, :cy, :cz, :hoh, :igm, :say, :lm, :lc, :tdm, :ach, :arole, :ast)
+       leave_message, locked_crates, time_docked_minutes, announcement_channel_id, announcement_role_id, automation_started,
+       automation_phase, phase_deadline_ms)
+     VALUES (:gid, :sid, :cx, :cy, :cz, :hoh, :igm, :say, :lm, :lc, :tdm, :ach, :arole, :ast, :aphase, :pdead)
      ON DUPLICATE KEY UPDATE
        coord_x = VALUES(coord_x),
        coord_y = VALUES(coord_y),
@@ -109,7 +130,9 @@ export async function mergeDockedCargoConfig(
        time_docked_minutes = VALUES(time_docked_minutes),
        announcement_channel_id = VALUES(announcement_channel_id),
        announcement_role_id = VALUES(announcement_role_id),
-       automation_started = VALUES(automation_started)`,
+       automation_started = VALUES(automation_started),
+       automation_phase = VALUES(automation_phase),
+       phase_deadline_ms = VALUES(phase_deadline_ms)`,
     {
       gid: merged.guildId,
       sid: merged.rustServerId,
@@ -125,6 +148,8 @@ export async function mergeDockedCargoConfig(
       ach: merged.announcementChannelId,
       arole: merged.announcementRoleId,
       ast: merged.automationStarted ? 1 : 0,
+      aphase: merged.automationPhase,
+      pdead: merged.phaseDeadlineMs,
     }
   );
   return merged;
@@ -142,5 +167,18 @@ export function isDockedCargoConfigComplete(c: DockedCargoConfigRow | null): boo
     if (!c.inGameMessage?.trim() || !c.leaveMessage?.trim()) return false;
   }
   return true;
+}
+
+export async function listDockedCargoAutomationServers(
+  pool: Pool
+): Promise<{ guildRowId: number; rustServerId: number }[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT guild_id AS guildRowId, rust_server_id AS rustServerId
+     FROM docked_cargo_configs WHERE automation_started = 1`
+  );
+  return (rows as { guildRowId: number; rustServerId: number }[]).map((r) => ({
+    guildRowId: Number(r.guildRowId),
+    rustServerId: Number(r.rustServerId),
+  }));
 }
 

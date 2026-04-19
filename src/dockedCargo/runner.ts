@@ -1,3 +1,4 @@
+import cron from "node-cron";
 import type { Pool } from "mysql2/promise";
 import type { Client } from "discord.js";
 import { config } from "../config.js";
@@ -6,6 +7,7 @@ import {
   getDockedCargoConfig,
   isDockedCargoConfigComplete,
   mergeDockedCargoConfig,
+  listDockedCargoAutomationServers,
   type DockedCargoConfigRow,
 } from "../db/dockedCargo.js";
 import { getRustServerByIdForGuild } from "../db/rustServers.js";
@@ -15,40 +17,17 @@ import { announceDockedCargoEvent } from "./discordAnnounce.js";
 
 export type DockedCargoPhase = "off" | "docked" | "between";
 
-type LoopEntry = { abort: AbortController; phase: DockedCargoPhase };
+const SPAWN_RETRY_MS = 60_000;
 
-const loops = new Map<number, LoopEntry>();
+/** Per-server mutex so overlapping cron ticks do not double-spawn. */
+const tickLocks = new Set<number>();
 
-export function getDockedCargoRuntimePhase(rustServerId: number): DockedCargoPhase {
-  return loops.get(rustServerId)?.phase ?? "off";
-}
+let cronJob: cron.ScheduledTask | null = null;
 
-export function isDockedCargoLoopRunning(rustServerId: number): boolean {
-  return loops.has(rustServerId);
-}
-
-function setPhase(rustServerId: number, phase: DockedCargoPhase): void {
-  const x = loops.get(rustServerId);
-  if (x) x.phase = phase;
-}
-
-async function sleepAbort(ms: number, signal: AbortSignal): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    const onAbort = (): void => {
-      clearTimeout(t);
-      reject(new Error("aborted"));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-export function stopDockedCargoLoop(rustServerId: number): void {
-  const x = loops.get(rustServerId);
-  if (x) {
-    x.abort.abort();
-    loops.delete(rustServerId);
-  }
+export function getDockedCargoRuntimePhaseFromConfig(cfg: DockedCargoConfigRow | null): DockedCargoPhase {
+  if (!cfg?.automationStarted) return "off";
+  if (cfg.automationPhase === "docked") return "docked";
+  return "between";
 }
 
 async function runRcon(
@@ -172,72 +151,122 @@ async function runUndock(
   }
 }
 
+export async function processDockedCargoServer(
+  pool: Pool,
+  client: Client,
+  guildRowId: number,
+  rustServerId: number
+): Promise<void> {
+  if (tickLocks.has(rustServerId)) return;
+  tickLocks.add(rustServerId);
+  try {
+    const cfg = await getDockedCargoConfig(pool, guildRowId, rustServerId);
+    if (!cfg?.automationStarted) return;
+    if (!isDockedCargoConfigComplete(cfg)) {
+      console.warn("[docked-cargo] config incomplete, stopping automation", rustServerId);
+      await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: false });
+      return;
+    }
+
+    const now = Date.now();
+    const dockMs = cfg.timeDockedMinutes! * 60_000;
+    const waitMs = cfg.howOftenHours! * 3600_000;
+
+    // Pending spawn (initial, after force-restart, or after failed spawn retry window).
+    if (cfg.automationPhase == null) {
+      if (cfg.phaseDeadlineMs != null && now < cfg.phaseDeadlineMs) return;
+      try {
+        await runSpawnAndDock(pool, guildRowId, rustServerId, cfg, client);
+        await mergeDockedCargoConfig(pool, guildRowId, rustServerId, {
+          automationPhase: "docked",
+          phaseDeadlineMs: now + dockMs,
+        });
+      } catch (e) {
+        console.error("[docked-cargo] spawn sequence failed:", e);
+        await mergeDockedCargoConfig(pool, guildRowId, rustServerId, {
+          automationPhase: null,
+          phaseDeadlineMs: now + SPAWN_RETRY_MS,
+        });
+      }
+      return;
+    }
+
+    if (cfg.automationPhase === "docked") {
+      if (cfg.phaseDeadlineMs == null || now < cfg.phaseDeadlineMs) return;
+      const cfgFresh = await getDockedCargoConfig(pool, guildRowId, rustServerId);
+      if (!cfgFresh || !isDockedCargoConfigComplete(cfgFresh)) return;
+      await runUndock(pool, guildRowId, rustServerId, cfgFresh, client);
+      await mergeDockedCargoConfig(pool, guildRowId, rustServerId, {
+        automationPhase: "between",
+        phaseDeadlineMs: now + waitMs,
+      });
+      return;
+    }
+
+    if (cfg.automationPhase === "between") {
+      if (cfg.phaseDeadlineMs == null || now < cfg.phaseDeadlineMs) return;
+      const cfgFresh = await getDockedCargoConfig(pool, guildRowId, rustServerId);
+      if (!cfgFresh || !isDockedCargoConfigComplete(cfgFresh)) return;
+      try {
+        await runSpawnAndDock(pool, guildRowId, rustServerId, cfgFresh, client);
+        await mergeDockedCargoConfig(pool, guildRowId, rustServerId, {
+          automationPhase: "docked",
+          phaseDeadlineMs: now + dockMs,
+        });
+      } catch (e) {
+        console.error("[docked-cargo] spawn sequence failed:", e);
+        await mergeDockedCargoConfig(pool, guildRowId, rustServerId, {
+          automationPhase: null,
+          phaseDeadlineMs: now + SPAWN_RETRY_MS,
+        });
+      }
+    }
+  } finally {
+    tickLocks.delete(rustServerId);
+  }
+}
+
+export async function tickAllDockedCargoAutomation(pool: Pool, client: Client): Promise<void> {
+  const servers = await listDockedCargoAutomationServers(pool);
+  for (const { guildRowId, rustServerId } of servers) {
+    try {
+      await processDockedCargoServer(pool, client, guildRowId, rustServerId);
+    } catch (e) {
+      console.error(`[docked-cargo] tick failed for server ${rustServerId}:`, e);
+    }
+  }
+}
+
 /**
- * Starts the repeating automation loop (spawn → dock timer → undock → how_often wait → repeat).
- * Call only when {@link isDockedCargoConfigComplete} is true.
+ * Registers automation: persisted phase deadlines + node-cron (survives process restarts).
  */
-export function startDockedCargoAutomation(
+export function initDockedCargoScheduler(pool: Pool, client: Client): void {
+  if (cronJob) return;
+  // Every 20 seconds — responsive enough for dock/between transitions without hammering RCON.
+  cronJob = cron.schedule(
+    "*/20 * * * * *",
+    () => {
+      void tickAllDockedCargoAutomation(pool, client);
+    },
+    { timezone: "Etc/UTC" }
+  );
+  void tickAllDockedCargoAutomation(pool, client);
+}
+
+/**
+ * Enables automation and resets schedule so the next cron tick spawns cargo (or retries after backoff).
+ */
+export async function startDockedCargoAutomation(
   pool: Pool,
   guildRowId: number,
   rustServerId: number,
-  client: Client,
-  options?: { force?: boolean }
-): { ok: true } | { ok: false; error: string } {
-  if (loops.has(rustServerId) && !options?.force) {
-    return { ok: false, error: "Loop already running for this server." };
-  }
-  if (options?.force) {
-    stopDockedCargoLoop(rustServerId);
-  }
-
-  const abort = new AbortController();
-  const signal = abort.signal;
-  loops.set(rustServerId, { abort, phase: "between" });
-
-  void (async () => {
-    try {
-      while (!signal.aborted) {
-        const cfg = await getDockedCargoConfig(pool, guildRowId, rustServerId);
-        if (!cfg || !isDockedCargoConfigComplete(cfg)) {
-          console.warn("[docked-cargo] config incomplete, stopping loop", rustServerId);
-          void mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: false }).catch(() => {});
-          break;
-        }
-
-        setPhase(rustServerId, "docked");
-        try {
-          await runSpawnAndDock(pool, guildRowId, rustServerId, cfg, client);
-        } catch (e) {
-          console.error("[docked-cargo] spawn sequence failed:", e);
-        }
-
-        const dockMs = cfg.timeDockedMinutes! * 60_000;
-        try {
-          await sleepAbort(dockMs, signal);
-        } catch {
-          break;
-        }
-
-        const cfg2 = await getDockedCargoConfig(pool, guildRowId, rustServerId);
-        if (!cfg2 || !isDockedCargoConfigComplete(cfg2)) {
-          void mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: false }).catch(() => {});
-          break;
-        }
-
-        await runUndock(pool, guildRowId, rustServerId, cfg2, client);
-
-        setPhase(rustServerId, "between");
-        const waitMs = cfg2.howOftenHours! * 3600_000;
-        try {
-          await sleepAbort(waitMs, signal);
-        } catch {
-          break;
-        }
-      }
-    } finally {
-      loops.delete(rustServerId);
-    }
-  })();
-
+  _client: Client,
+  _options?: { force?: boolean }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await mergeDockedCargoConfig(pool, guildRowId, rustServerId, {
+    automationStarted: true,
+    automationPhase: null,
+    phaseDeadlineMs: null,
+  });
   return { ok: true };
 }

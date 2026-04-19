@@ -63,7 +63,7 @@ import {
   isDockedCargoConfigComplete,
   mergeDockedCargoConfig,
 } from "../db/dockedCargo.js";
-import { isDockedCargoLoopRunning, startDockedCargoAutomation } from "../dockedCargo/runner.js";
+import { startDockedCargoAutomation } from "../dockedCargo/runner.js";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body), "utf8");
@@ -1017,11 +1017,11 @@ export async function handleAdminPanelRoutes(
       json(res, 400, { ok: false, error: "Complete Docked Cargo setup first." });
       return true;
     }
-    if (cfg.automationStarted && isDockedCargoLoopRunning(rustServerId) && !force) {
+    if (cfg.automationStarted && !force) {
       json(res, 409, { ok: false, error: "already_started", needsForce: true });
       return true;
     }
-    const started = startDockedCargoAutomation(
+    const started = await startDockedCargoAutomation(
       pool,
       guildRowId,
       rustServerId,
@@ -1032,7 +1032,6 @@ export async function handleAdminPanelRoutes(
       json(res, 500, { ok: false, error: started.error ?? "Start failed" });
       return true;
     }
-    await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: true });
     json(res, 200, { ok: true, started: true });
     return true;
   }

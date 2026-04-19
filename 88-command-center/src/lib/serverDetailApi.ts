@@ -72,6 +72,8 @@ export type ServerEventsResponse = {
     automationStarted: boolean;
     phase: "off" | "docked" | "between";
     active: boolean;
+    /** When the current docked phase ends, or when the next docked phase starts (between). */
+    phaseEndsAtMs: number | null;
   };
 };
 

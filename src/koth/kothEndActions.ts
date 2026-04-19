@@ -2,9 +2,10 @@ import type { Pool } from "mysql2/promise";
 import { config } from "../config.js";
 import { decryptSecret } from "../crypto/passwordVault.js";
 import {
-  deleteKothEventAndClearConfig,
+  deleteKothEventRow,
   getActiveKothEvent,
   getKothConfig,
+  mergeKothConfig,
   getKothEventTopKillerWithLink,
   listKothParticipantsWithGatesAndClan,
   listWaveKillsDetailed,
@@ -72,7 +73,18 @@ export async function performKothEnd(pool: Pool, guildRowId: number, serverId: n
     console.error("[koth-end] failed to snapshot ended event:", err);
   }
 
-  await deleteKothEventAndClearConfig(pool, guildRowId, serverId, active.id);
+  await deleteKothEventRow(pool, guildRowId, active.id);
+  const cfgAfter = await getKothConfig(pool, guildRowId, serverId);
+  if (cfgAfter?.automationStarted && cfgAfter.howOftenHours && cfgAfter.howOftenHours > 0) {
+    await mergeKothConfig(pool, guildRowId, serverId, {
+      nextLobbyAtMs: Date.now() + cfgAfter.howOftenHours * 3600_000,
+    });
+  } else {
+    await pool.query(`DELETE FROM koth_configs WHERE guild_id = :gid AND rust_server_id = :sid`, {
+      gid: guildRowId,
+      sid: serverId,
+    });
+  }
 
   return { ok: true, hadActive: true, stoppedRunner: stopped };
 }

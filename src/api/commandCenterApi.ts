@@ -832,6 +832,8 @@ export function startCommandCenterApi(client?: Client): void {
         json(res, 200, {
           ok: true,
           serverId,
+          /** Wall time on the bot host when this payload was built — clients should derive countdowns from this + monotonic elapsed time to avoid device clock skew. */
+          serverNowMs: Date.now(),
           koth: {
             status: kStatus,
             phase: kothPhase,
@@ -841,6 +843,9 @@ export function startCommandCenterApi(client?: Client): void {
             teleportCountdownMs: 0,
             doorDelayMs: kothDoorMs,
             gatesTotal: kCfg?.gates ?? null,
+            automationStarted: kCfg?.automationStarted ?? false,
+            nextLobbyAtMs: kCfg?.nextLobbyAtMs ?? null,
+            lobbyEndsAtMs: kMeta?.lobbyEndsAtMs ?? null,
             joined: kMembers,
             participants: kParticipants.map((p) => ({
               discordUserId: p.discordUserId,

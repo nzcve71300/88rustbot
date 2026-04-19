@@ -9,7 +9,7 @@ import {
 } from "../embeds/eventResults.js";
 import {
   countKothKillsForWave,
-  deleteKothEventAndClearConfig,
+  finalizeKothAfterSuccessfulRun,
   finishKothEvent,
   getGateCoord,
   getKothDoorDelayMs,
@@ -413,7 +413,7 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
       console.error("[koth] failed to snapshot ended event:", err);
     }
 
-    await deleteKothEventAndClearConfig(pool, guildRowId, rustServerId, eventId);
+    await finalizeKothAfterSuccessfulRun(pool, guildRowId, rustServerId, eventId);
   } catch (err) {
     console.error("[koth] runner failed:", err);
     await finishKothEvent(pool, eventId).catch(() => {});

@@ -595,6 +595,16 @@ export async function ensureSchema(): Promise<void> {
     );
     await ignoreDup("ALTER TABLE docked_cargo_configs ADD COLUMN phase_deadline_ms BIGINT UNSIGNED NULL");
 
+    await ignoreDup("ALTER TABLE koth_events ADD COLUMN lobby_ends_at TIMESTAMP NULL");
+    await ignoreDup("ALTER TABLE koth_configs ADD COLUMN how_often_hours DECIMAL(12,4) NULL");
+    await ignoreDup("ALTER TABLE koth_configs ADD COLUMN waves INT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE koth_configs ADD COLUMN duration_per_wave_min INT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE koth_configs ADD COLUMN kit_name VARCHAR(64) NULL");
+    await ignoreDup(
+      "ALTER TABLE koth_configs ADD COLUMN automation_started TINYINT(1) NOT NULL DEFAULT 0"
+    );
+    await ignoreDup("ALTER TABLE koth_configs ADD COLUMN next_lobby_at_ms BIGINT UNSIGNED NULL");
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS site_inbox (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

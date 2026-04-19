@@ -12,14 +12,12 @@ import { upsertClanSettings } from "../db/clans.js";
 import { getDiscordGuildIdByRowId, getOrCreateGuildRow } from "../db/guilds.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import {
-  countEventMembers,
-  ensureLobbyEventForJoin,
   getActiveKothEvent,
   getGateCoord,
   getKothConfig,
-  startKothEvent,
   upsertGateCoord,
-  upsertKothConfig,
+  mergeKothConfig,
+  isKothAutomationConfigComplete,
 } from "../db/koth.js";
 import {
   countMazeEventMembers,
@@ -46,7 +44,7 @@ import { getRustServerByIdForGuild, getGuildRowIdForRustServerId, listRustServer
 import { performMazeDelete } from "../maze/mazeEndActions.js";
 import { performKothEnd } from "../koth/kothEndActions.js";
 import { renderKothEmbed } from "../koth/render.js";
-import { parseGateCoordTriple, runKothWaves } from "../koth/runner.js";
+import { startKothAutomation } from "../koth/automation.js";
 import { renderMazeEmbed } from "../maze/render.js";
 import { runMazeEvent } from "../maze/runner.js";
 import { renderNuketownEmbed } from "../nuketown/render.js";
@@ -214,6 +212,30 @@ export async function handleAdminPanelRoutes(
     return true;
   }
 
+  if (rest === "koth/config" && method === "GET") {
+    const cfg = await getKothConfig(pool, guildRowId, rustServerId);
+    json(res, 200, {
+      ok: true,
+      config: cfg
+        ? {
+            announcementChannelId: cfg.announcementChannelId,
+            announcementRoleId: cfg.announcementRoleId,
+            gates: cfg.gates,
+            gateFrequency: cfg.gateFrequency,
+            messageId: cfg.messageId,
+            howOftenHours: cfg.howOftenHours,
+            waves: cfg.waves,
+            durationPerWaveMin: cfg.durationPerWaveMin,
+            kitName: cfg.kitName,
+            automationStarted: cfg.automationStarted,
+            nextLobbyAtMs: cfg.nextLobbyAtMs,
+            setupComplete: isKothAutomationConfigComplete(cfg),
+          }
+        : null,
+    });
+    return true;
+  }
+
   if (rest === "koth/end" && method === "POST") {
     const active = await getActiveKothEvent(pool, guildRowId, rustServerId);
     if (!active) {
@@ -236,17 +258,42 @@ export async function handleAdminPanelRoutes(
       gates?: number;
       gateFrequency?: number;
       announcementRoleId?: string;
+      howOftenHours?: number;
+      waves?: number;
+      durationMinutes?: number;
+      kitName?: string;
     };
     const announcementChannelId = String(body.announcementChannelId ?? "").trim();
     const gates = Number(body.gates);
     const gateFrequency = Number(body.gateFrequency);
     const announcementRoleId = String(body.announcementRoleId ?? "").trim();
+    const howOftenHours = Number(body.howOftenHours);
+    const waves = Number(body.waves);
+    const durationMin = Number(body.durationMinutes);
+    const kitName = String(body.kitName ?? "").trim();
+
     if (!announcementChannelId || !announcementRoleId || !Number.isFinite(gates) || gates < 1 || gates > 20) {
       json(res, 400, { ok: false, error: "Invalid channel, gates (1–20), or role." });
       return true;
     }
     if (!Number.isFinite(gateFrequency) || gateFrequency < 1000 || gateFrequency > 9999) {
       json(res, 400, { ok: false, error: "Gate frequency must be 1000–9999." });
+      return true;
+    }
+    if (!Number.isFinite(howOftenHours) || howOftenHours < 0.25 || howOftenHours > 168) {
+      json(res, 400, { ok: false, error: "How often (hours) must be between 0.25 and 168." });
+      return true;
+    }
+    if (!Number.isFinite(waves) || waves < 1 || waves > 50) {
+      json(res, 400, { ok: false, error: "Waves must be 1–50." });
+      return true;
+    }
+    if (!Number.isFinite(durationMin) || durationMin < 1 || durationMin > 120) {
+      json(res, 400, { ok: false, error: "Duration must be 1–120 minutes." });
+      return true;
+    }
+    if (!kitName) {
+      json(res, 400, { ok: false, error: "Kit name required." });
       return true;
     }
 
@@ -268,17 +315,27 @@ export async function handleAdminPanelRoutes(
       return true;
     }
 
-    const lobby = await ensureLobbyEventForJoin(pool, guildRowId, rustServerId);
-    const eventNumber = lobby.ok ? lobby.eventId : null;
-    const embed = renderKothEmbed(srv.nickname, srv.nickname, [], eventNumber, null);
+    const embed = renderKothEmbed(srv.nickname, srv.nickname, [], null, null);
     const sent = await ch.send({ content: `<@&${role.id}>`, embeds: [embed] });
 
-    await upsertKothConfig(pool, guildRowId, rustServerId, ch.id, role.id, gates, gateFrequency, sent.id);
+    const mergedCfg = await mergeKothConfig(pool, guildRowId, rustServerId, {
+      announcementChannelId: ch.id,
+      announcementRoleId: role.id,
+      gates,
+      gateFrequency,
+      messageId: sent.id,
+      howOftenHours,
+      waves,
+      durationPerWaveMin: durationMin,
+      kitName,
+      automationStarted: false,
+      nextLobbyAtMs: null,
+    });
 
     void notifyGuildWebPush(pool, guildRowId, rustServerId, {
       title: "Grindset",
-      body: "KOTH lobby is open. Join now!",
-      tag: `koth-lobby-${lobby.ok ? lobby.eventId : "setup"}`,
+      body: "KOTH configured. Start automation from the admin panel when ready.",
+      tag: `koth-setup-${rustServerId}`,
     });
 
     try {
@@ -291,98 +348,31 @@ export async function handleAdminPanelRoutes(
       console.error("[admin koth-setup] say failed:", err);
     }
 
-    json(res, 200, { ok: true, messageId: sent.id });
+    json(res, 200, { ok: true, messageId: sent.id, setupComplete: isKothAutomationConfigComplete(mergedCfg) });
     return true;
   }
 
   if (rest === "koth/start" && method === "POST") {
     const raw = await readJsonBody(req);
-    const body = raw as { waves?: number; durationMinutes?: number; kitName?: string };
-    const waves = Number(body.waves);
-    const durationMin = Number(body.durationMinutes);
-    const kitName = String(body.kitName ?? "").trim();
-
-    if (!Number.isFinite(waves) || waves < 1 || waves > 50) {
-      json(res, 400, { ok: false, error: "Waves must be 1–50." });
-      return true;
-    }
-    if (!Number.isFinite(durationMin) || durationMin < 1 || durationMin > 120) {
-      json(res, 400, { ok: false, error: "Duration must be 1–120 minutes." });
-      return true;
-    }
-    if (!kitName) {
-      json(res, 400, { ok: false, error: "Kit name required." });
-      return true;
-    }
+    const body = raw as { force?: boolean };
+    const force = Boolean(body.force);
 
     const cfg = await getKothConfig(pool, guildRowId, rustServerId);
-    if (!cfg || !cfg.messageId) {
-      json(res, 400, { ok: false, error: "Run KOTH setup first." });
+    if (!cfg || !cfg.messageId || !isKothAutomationConfigComplete(cfg)) {
+      json(res, 400, { ok: false, error: "Complete KOTH setup (how often, waves, duration, kit) first." });
       return true;
     }
 
-    const gate1Raw = await getGateCoord(pool, guildRowId, rustServerId, 1);
-    const gate1Xyz = gate1Raw ? parseGateCoordTriple(gate1Raw) : null;
-    if (!gate1Xyz) {
-      json(res, 400, { ok: false, error: "KOTH Gate 1 position required (/manage-positions)." });
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
       return true;
     }
 
-    const active = await getActiveKothEvent(pool, guildRowId, rustServerId);
-    if (!active || active.status !== "lobby") {
-      json(res, 400, { ok: false, error: "Need an active lobby and participants." });
+    const started = await startKothAutomation(pool, guildRowId, rustServerId);
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
       return true;
     }
-
-    const members = await countEventMembers(pool, active.id);
-    if (members < 1) {
-      json(res, 400, { ok: false, error: "At least one player must /koth-join first." });
-      return true;
-    }
-
-    const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
-    if (!srv) {
-      json(res, 404, { ok: false, error: "Server not found" });
-      return true;
-    }
-
-    let password: string;
-    try {
-      password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
-    } catch {
-      json(res, 500, { ok: false, error: "RCON decrypt failed" });
-      return true;
-    }
-
-    const started = await startKothEvent(pool, active.id, durationMin, waves, kitName);
-    if (!started) {
-      json(res, 409, { ok: false, error: "Could not start KOTH." });
-      return true;
-    }
-
-    void notifyGuildWebPush(pool, guildRowId, rustServerId, {
-      title: "Grindset",
-      body: "KOTH Started. Join now!",
-      tag: `koth-${active.id}`,
-    });
-
-    void runKothWaves({
-      client,
-      pool,
-      guildRowId,
-      rustServerId,
-      eventId: active.id,
-      announcementChannelId: cfg.announcementChannelId,
-      serverNickname: srv.nickname,
-      host: srv.server_ip,
-      port: srv.rcon_port,
-      password,
-      waves,
-      durationPerWaveMin: durationMin,
-      kitName,
-      gateFrequency: cfg.gateFrequency,
-      gate1Xyz,
-    });
 
     json(res, 200, { ok: true, started: true });
     return true;

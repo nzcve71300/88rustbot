@@ -26,6 +26,8 @@ import {
 } from "./dockedCargo/interactions.js";
 import { handleOneV1Accept, handleOneV1Duck, isOneV1AcceptButton, isOneV1DuckButton } from "./onev1/acceptFlow.js";
 import { initDockedCargoScheduler } from "./dockedCargo/runner.js";
+import { initKothAutomationScheduler } from "./koth/automation.js";
+import { handleKothForceRestart } from "./koth/startInteractions.js";
 
 async function main() {
   await ensureSchema();
@@ -61,6 +63,7 @@ async function main() {
     startCommandCenterApi(client);
 
     initDockedCargoScheduler(pool, client);
+    initKothAutomationScheduler(pool, client);
 
     // Keep clan invite table clean (24h expiry).
     setInterval(() => {
@@ -132,6 +135,23 @@ async function main() {
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith("koth:rs:")) {
+        try {
+          await handleKothForceRestart(interaction);
+        } catch (err) {
+          console.error(err);
+          try {
+            if (interaction.deferred || interaction.replied) {
+              await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+            } else {
+              await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
       if (interaction.customId.startsWith("dc:rs:")) {
         try {
           await handleDockedCargoRestart(interaction);

@@ -12,7 +12,7 @@ import { baseEmbed } from "../../embeds/standard.js";
 import { listRustServersForGuild } from "../../db/rustServers.js";
 import { config } from "../../config.js";
 import { decryptSecret } from "../../crypto/passwordVault.js";
-import { ensureLobbyEventForJoin, upsertKothConfig } from "../../db/koth.js";
+import { mergeKothConfig } from "../../db/koth.js";
 import { getRustServerByIdForGuild } from "../../db/rustServers.js";
 import { renderKothEmbed } from "../../koth/render.js";
 import { KOTH_RCON_SETUP, runSayRcon } from "../../rcon/eventBroadcasts.js";
@@ -22,7 +22,7 @@ import { notifyGuildWebPush } from "../../push/webPushNotify.js";
 export const kothSetupCommand = {
   data: new SlashCommandBuilder()
     .setName("koth-setup")
-    .setDescription("Setup King of the Hill announcements for a Rust server (admin only).")
+    .setDescription("Configure KOTH (announcements, schedule, waves, kit). Gate coords: /manage-positions.")
     .addStringOption((o) =>
       o
         .setName("server")
@@ -48,7 +48,37 @@ export const kothSetupCommand = {
         .setMinValue(1000)
         .setMaxValue(9999)
     )
-    .addRoleOption((o) => o.setName("announcement_role").setDescription("Role to mention").setRequired(true)),
+    .addRoleOption((o) => o.setName("announcement_role").setDescription("Role to mention").setRequired(true))
+    .addNumberOption((o) =>
+      o
+        .setName("how_often")
+        .setDescription("Hours between automatic KOTH lobbies (same idea as Docked Cargo)")
+        .setRequired(true)
+        .setMinValue(0.25)
+        .setMaxValue(168)
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("waves")
+        .setDescription("Number of waves per match")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(50)
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("duration_minutes")
+        .setDescription("Duration of each wave (minutes)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(120)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("kit_name")
+        .setDescription("Kit name as configured on the Rust server")
+        .setRequired(true)
+    ),
 
   async autocomplete(interaction: import("discord.js").AutocompleteInteraction) {
     await autocompleteServerOption(interaction, "server");
@@ -69,6 +99,10 @@ export const kothSetupCommand = {
     const gates = interaction.options.getInteger("gates", true);
     const gateFrequency = interaction.options.getInteger("gate_frequency", true);
     const role = interaction.options.getRole("announcement_role", true);
+    const howOften = interaction.options.getNumber("how_often", true);
+    const waves = interaction.options.getInteger("waves", true);
+    const durationMin = interaction.options.getInteger("duration_minutes", true);
+    const kitName = interaction.options.getString("kit_name", true).trim();
 
     if (!(channel instanceof TextChannel)) {
       await interaction.reply({ embeds: [baseEmbed().setTitle("Invalid channel").setDescription("Pick a text channel.")], ephemeral: true });
@@ -84,23 +118,38 @@ export const kothSetupCommand = {
       return;
     }
 
-    // Create the lobby immediately so we can include the event number in the announcement.
-    const lobby = await ensureLobbyEventForJoin(pool, guildRowId, serverId);
-    const eventNumber = lobby.ok ? lobby.eventId : null;
-
-    const embed = renderKothEmbed(srv.nickname, srv.nickname, [], eventNumber, null);
+    const embed = renderKothEmbed(srv.nickname, srv.nickname, [], null, null);
     const sent = await channel.send({ content: `<@&${role.id}>`, embeds: [embed] });
 
-    await upsertKothConfig(pool, guildRowId, serverId, channel.id, role.id, gates, gateFrequency, sent.id);
+    await mergeKothConfig(pool, guildRowId, serverId, {
+      announcementChannelId: channel.id,
+      announcementRoleId: role.id,
+      gates,
+      gateFrequency,
+      messageId: sent.id,
+      howOftenHours: howOften,
+      waves,
+      durationPerWaveMin: durationMin,
+      kitName,
+      automationStarted: false,
+      nextLobbyAtMs: null,
+    });
 
     void notifyGuildWebPush(pool, guildRowId, serverId, {
       title: "Grindset",
-      body: "KOTH lobby is open. Join now!",
-      tag: `koth-lobby-${lobby.ok ? lobby.eventId : "setup"}`,
+      body: "KOTH has been configured. Use /koth-start to enable automatic lobbies.",
+      tag: `koth-setup-${serverId}`,
     });
 
     await interaction.editReply({
-      embeds: [baseEmbed().setTitle("KOTH configured").setDescription(`KOTH message posted in ${channel}.`)],
+      embeds: [
+        baseEmbed()
+          .setTitle("KOTH configured")
+          .setDescription(
+            `Saved **how often**, **waves**, **duration**, and **kit**. Message posted in ${channel}. ` +
+              `Set **KOTH Gate** positions in **/manage-positions**, then run **/koth-start** once to begin automatic lobbies.`
+          ),
+      ],
     });
 
     const rustRow = await getRustServerByIdForGuild(pool, guildRowId, serverId);
@@ -114,4 +163,3 @@ export const kothSetupCommand = {
     }
   },
 };
-

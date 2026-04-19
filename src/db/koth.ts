@@ -7,7 +7,143 @@ export type KothConfig = {
   gates: number;
   gateFrequency: number;
   messageId: string | null;
+  howOftenHours: number | null;
+  waves: number | null;
+  durationPerWaveMin: number | null;
+  kitName: string | null;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
 };
+
+export type KothConfigPatch = Partial<{
+  announcementChannelId: string;
+  announcementRoleId: string | null;
+  gates: number;
+  gateFrequency: number;
+  messageId: string | null;
+  howOftenHours: number | null;
+  waves: number | null;
+  durationPerWaveMin: number | null;
+  kitName: string | null;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
+}>;
+
+function rowToKothConfig(r: Record<string, unknown>, rustServerId: number): KothConfig {
+  return {
+    rustServerId,
+    announcementChannelId: String(r.announcementChannelId ?? ""),
+    announcementRoleId: r.announcementRoleId != null ? String(r.announcementRoleId) : null,
+    gates: Number(r.gates),
+    gateFrequency: Number(r.gateFrequency),
+    messageId: r.messageId != null ? String(r.messageId) : null,
+    howOftenHours: r.howOftenHours != null ? Number(r.howOftenHours) : null,
+    waves: r.waves != null ? Number(r.waves) : null,
+    durationPerWaveMin: r.durationPerWaveMin != null ? Number(r.durationPerWaveMin) : null,
+    kitName: r.kitName != null ? String(r.kitName) : null,
+    automationStarted: Number(r.automationStarted) === 1,
+    nextLobbyAtMs: r.nextLobbyAtMs != null ? Number(r.nextLobbyAtMs) : null,
+  };
+}
+
+async function fetchKothConfigRow(
+  pool: Pool,
+  guildRowId: number,
+  rustServerId: number
+): Promise<KothConfig | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT rust_server_id as rustServerId,
+            CAST(announcement_channel_id AS CHAR) as announcementChannelId,
+            CAST(announcement_role_id AS CHAR) as announcementRoleId,
+            gates, gate_frequency as gateFrequency,
+            CAST(message_id AS CHAR) as messageId,
+            how_often_hours as howOftenHours,
+            waves, duration_per_wave_min as durationPerWaveMin,
+            kit_name as kitName,
+            automation_started as automationStarted,
+            next_lobby_at_ms as nextLobbyAtMs
+     FROM koth_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
+    { gid: guildRowId, sid: rustServerId }
+  );
+  const r = rows[0] as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return rowToKothConfig(r, rustServerId);
+}
+
+export async function getKothConfig(pool: Pool, guildRowId: number, rustServerId: number): Promise<KothConfig | null> {
+  return fetchKothConfigRow(pool, guildRowId, rustServerId);
+}
+
+export function isKothAutomationConfigComplete(c: KothConfig | null): boolean {
+  if (!c?.messageId) return false;
+  if (!c.howOftenHours || c.howOftenHours <= 0) return false;
+  if (!c.waves || c.waves < 1) return false;
+  if (!c.durationPerWaveMin || c.durationPerWaveMin < 1) return false;
+  if (!c.kitName?.trim()) return false;
+  return true;
+}
+
+export async function mergeKothConfig(
+  pool: Pool,
+  guildRowId: number,
+  rustServerId: number,
+  patch: KothConfigPatch
+): Promise<KothConfig> {
+  const cur = await fetchKothConfigRow(pool, guildRowId, rustServerId);
+  const merged: KothConfig = {
+    rustServerId,
+    announcementChannelId:
+      patch.announcementChannelId !== undefined ? patch.announcementChannelId : cur?.announcementChannelId ?? "",
+    announcementRoleId:
+      patch.announcementRoleId !== undefined ? patch.announcementRoleId : cur?.announcementRoleId ?? null,
+    gates: patch.gates !== undefined ? patch.gates : cur?.gates ?? 1,
+    gateFrequency: patch.gateFrequency !== undefined ? patch.gateFrequency : cur?.gateFrequency ?? 1000,
+    messageId: patch.messageId !== undefined ? patch.messageId : cur?.messageId ?? null,
+    howOftenHours: patch.howOftenHours !== undefined ? patch.howOftenHours : cur?.howOftenHours ?? null,
+    waves: patch.waves !== undefined ? patch.waves : cur?.waves ?? null,
+    durationPerWaveMin: patch.durationPerWaveMin !== undefined ? patch.durationPerWaveMin : cur?.durationPerWaveMin ?? null,
+    kitName: patch.kitName !== undefined ? patch.kitName : cur?.kitName ?? null,
+    automationStarted: patch.automationStarted !== undefined ? patch.automationStarted : cur?.automationStarted ?? false,
+    nextLobbyAtMs: patch.nextLobbyAtMs !== undefined ? patch.nextLobbyAtMs : cur?.nextLobbyAtMs ?? null,
+  };
+  if (!merged.automationStarted) {
+    merged.nextLobbyAtMs = null;
+  }
+
+  await pool.query<ResultSetHeader>(
+    `INSERT INTO koth_configs (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, gates, gate_frequency, message_id,
+        how_often_hours, waves, duration_per_wave_min, kit_name, automation_started, next_lobby_at_ms)
+     VALUES (:gid, :sid, :chan, :role, :gates, :freq, :msg, :hoh, :waves, :dmin, :kit, :ast, :nextMs)
+     ON DUPLICATE KEY UPDATE
+       announcement_channel_id = VALUES(announcement_channel_id),
+       announcement_role_id = VALUES(announcement_role_id),
+       gates = VALUES(gates),
+       gate_frequency = VALUES(gate_frequency),
+       message_id = VALUES(message_id),
+       how_often_hours = VALUES(how_often_hours),
+       waves = VALUES(waves),
+       duration_per_wave_min = VALUES(duration_per_wave_min),
+       kit_name = VALUES(kit_name),
+       automation_started = VALUES(automation_started),
+       next_lobby_at_ms = VALUES(next_lobby_at_ms)`,
+    {
+      gid: guildRowId,
+      sid: rustServerId,
+      chan: merged.announcementChannelId,
+      role: merged.announcementRoleId,
+      gates: merged.gates,
+      freq: merged.gateFrequency,
+      msg: merged.messageId,
+      hoh: merged.howOftenHours,
+      waves: merged.waves,
+      dmin: merged.durationPerWaveMin,
+      kit: merged.kitName,
+      ast: merged.automationStarted ? 1 : 0,
+      nextMs: merged.nextLobbyAtMs,
+    }
+  );
+  return merged;
+}
 
 export async function upsertKothConfig(
   pool: Pool,
@@ -18,33 +154,14 @@ export async function upsertKothConfig(
   gates: number,
   gateFrequency: number,
   messageId: string | null
-) {
-  await pool.query<ResultSetHeader>(
-    `
-    INSERT INTO koth_configs (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, gates, gate_frequency, message_id)
-    VALUES (:gid, :sid, :chan, :role, :gates, :freq, :msg)
-    ON DUPLICATE KEY UPDATE
-      announcement_channel_id = VALUES(announcement_channel_id),
-      announcement_role_id = VALUES(announcement_role_id),
-      gates = VALUES(gates),
-      gate_frequency = VALUES(gate_frequency),
-      message_id = VALUES(message_id)
-  `,
-    { gid: guildRowId, sid: rustServerId, chan: announcementChannelId, role: announcementRoleId, gates, freq: gateFrequency, msg: messageId }
-  );
-}
-
-export async function getKothConfig(pool: Pool, guildRowId: number, rustServerId: number): Promise<KothConfig | null> {
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT rust_server_id as rustServerId,
-            CAST(announcement_channel_id AS CHAR) as announcementChannelId,
-            CAST(announcement_role_id AS CHAR) as announcementRoleId,
-            gates, gate_frequency as gateFrequency,
-            CAST(message_id AS CHAR) as messageId
-     FROM koth_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
-    { gid: guildRowId, sid: rustServerId }
-  );
-  return (rows[0] as KothConfig | undefined) ?? null;
+): Promise<void> {
+  await mergeKothConfig(pool, guildRowId, rustServerId, {
+    announcementChannelId,
+    announcementRoleId,
+    gates,
+    gateFrequency,
+    messageId,
+  });
 }
 
 export type KothEvent = {
@@ -81,12 +198,14 @@ export async function getActiveKothEventMeta(
   waveStartedAtMs: number | null;
   durationPerWaveMin: number | null;
   wavesTotal: number | null;
+  lobbyEndsAtMs: number | null;
 } | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT id, status, current_wave AS currentWave,
             CASE WHEN wave_started_at IS NULL THEN NULL ELSE UNIX_TIMESTAMP(wave_started_at) * 1000 END AS waveStartedAtMs,
             duration_per_wave_min AS durationPerWaveMin,
-            waves AS wavesTotal
+            waves AS wavesTotal,
+            CASE WHEN lobby_ends_at IS NULL THEN NULL ELSE UNIX_TIMESTAMP(lobby_ends_at) * 1000 END AS lobbyEndsAtMs
      FROM koth_events
      WHERE guild_id = :gid AND rust_server_id = :sid AND status IN ('lobby','running')
      ORDER BY id DESC LIMIT 1`,
@@ -100,6 +219,7 @@ export async function getActiveKothEventMeta(
         waveStartedAtMs: number | null;
         durationPerWaveMin: number | null;
         wavesTotal: number | null;
+        lobbyEndsAtMs: number | null;
       }
     | undefined;
   if (!r) return null;
@@ -110,6 +230,7 @@ export async function getActiveKothEventMeta(
     waveStartedAtMs: r.waveStartedAtMs != null ? Number(r.waveStartedAtMs) : null,
     durationPerWaveMin: r.durationPerWaveMin != null ? Number(r.durationPerWaveMin) : null,
     wavesTotal: r.wavesTotal != null ? Number(r.wavesTotal) : null,
+    lobbyEndsAtMs: r.lobbyEndsAtMs != null ? Number(r.lobbyEndsAtMs) : null,
   };
 }
 
@@ -204,7 +325,8 @@ export async function startKothEvent(
        waves = :waves,
        kit_name = :kit,
        current_wave = 1,
-       wave_started_at = NULL
+       wave_started_at = NULL,
+       lobby_ends_at = NULL
      WHERE id = :eid AND status = 'lobby'`,
     { eid: eventId, dmin: durationPerWaveMin, waves, kit: kitName }
   );
@@ -218,9 +340,44 @@ export async function finishKothEvent(pool: Pool, eventId: number): Promise<void
   );
 }
 
+export async function deleteKothEventRow(pool: Pool, guildRowId: number, eventId: number): Promise<void> {
+  await pool.query<ResultSetHeader>(`DELETE FROM koth_events WHERE id = :eid AND guild_id = :gid`, {
+    eid: eventId,
+    gid: guildRowId,
+  });
+}
+
+export async function countAssignedGatesForEvent(pool: Pool, eventId: number): Promise<number> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM koth_event_gates WHERE event_id = :eid`,
+    { eid: eventId }
+  );
+  return Number((rows[0] as { c: number }).c);
+}
+
+export async function setKothLobbyEndsInMinutes(pool: Pool, eventId: number, minutes: number): Promise<void> {
+  const mins = Math.max(1, Math.floor(minutes));
+  await pool.query<ResultSetHeader>(
+    `UPDATE koth_events SET lobby_ends_at = DATE_ADD(NOW(), INTERVAL :mins MINUTE) WHERE id = :eid`,
+    { eid: eventId, mins }
+  );
+}
+
+export async function listKothAutomationServers(
+  pool: Pool
+): Promise<{ guildRowId: number; rustServerId: number }[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT guild_id AS guildRowId, rust_server_id AS rustServerId FROM koth_configs WHERE automation_started = 1`
+  );
+  return (rows as { guildRowId: number; rustServerId: number }[]).map((r) => ({
+    guildRowId: Number(r.guildRowId),
+    rustServerId: Number(r.rustServerId),
+  }));
+}
+
 /**
- * Successful KOTH completion: removes the event (members/kills cascade) and `koth_configs`
- * so admins must run `/koth-setup` again. Does **not** delete `koth_gate_coords`.
+ * Successful KOTH completion (manual / legacy): removes the event and `koth_configs`.
+ * Does **not** delete `koth_gate_coords`. Prefer {@link deleteKothEventRow} when keeping automation config.
  */
 export async function deleteKothEventAndClearConfig(
   pool: Pool,
@@ -228,14 +385,32 @@ export async function deleteKothEventAndClearConfig(
   rustServerId: number,
   eventId: number
 ): Promise<void> {
-  await pool.query<ResultSetHeader>(
-    `DELETE FROM koth_events WHERE id = :eid AND guild_id = :gid`,
-    { eid: eventId, gid: guildRowId }
-  );
+  await deleteKothEventRow(pool, guildRowId, eventId);
   await pool.query<ResultSetHeader>(
     `DELETE FROM koth_configs WHERE guild_id = :gid AND rust_server_id = :sid`,
     { gid: guildRowId, sid: rustServerId }
   );
+}
+
+/** After all waves finish successfully: remove event row; keep or drop config based on automation. */
+export async function finalizeKothAfterSuccessfulRun(
+  pool: Pool,
+  guildRowId: number,
+  rustServerId: number,
+  eventId: number
+): Promise<void> {
+  const cfg = await getKothConfig(pool, guildRowId, rustServerId);
+  await deleteKothEventRow(pool, guildRowId, eventId);
+  if (cfg?.automationStarted && cfg.howOftenHours != null && cfg.howOftenHours > 0) {
+    await mergeKothConfig(pool, guildRowId, rustServerId, {
+      nextLobbyAtMs: Date.now() + cfg.howOftenHours * 3600_000,
+    });
+  } else {
+    await pool.query<ResultSetHeader>(
+      `DELETE FROM koth_configs WHERE guild_id = :gid AND rust_server_id = :sid`,
+      { gid: guildRowId, sid: rustServerId }
+    );
+  }
 }
 
 export async function setKothWave(pool: Pool, eventId: number, wave: number): Promise<void> {

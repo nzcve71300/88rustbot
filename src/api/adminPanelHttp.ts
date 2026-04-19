@@ -63,7 +63,7 @@ import {
   isDockedCargoConfigComplete,
   mergeDockedCargoConfig,
 } from "../db/dockedCargo.js";
-import { startDockedCargoAutomation } from "../dockedCargo/runner.js";
+import { isDockedCargoLoopRunning, startDockedCargoAutomation } from "../dockedCargo/runner.js";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body), "utf8");
@@ -927,6 +927,7 @@ export async function handleAdminPanelRoutes(
             lockedCrates: cfg.lockedCrates,
             timeDockedMinutes: cfg.timeDockedMinutes,
             announcementChannelId: cfg.announcementChannelId,
+            announcementRoleId: cfg.announcementRoleId,
             automationStarted: cfg.automationStarted,
             setupComplete: isDockedCargoConfigComplete(cfg),
           }
@@ -946,6 +947,7 @@ export async function handleAdminPanelRoutes(
       lockedCrates?: number;
       timeDockedMinutes?: number;
       announcementChannelId?: string;
+      announcementRoleId?: string;
     };
     const patch: DockedCargoPatch = {};
 
@@ -989,6 +991,17 @@ export async function handleAdminPanelRoutes(
         patch.announcementChannelId = ch;
       }
     }
+    if (body.announcementRoleId !== undefined) {
+      const rid = String(body.announcementRoleId).trim();
+      if (rid) {
+        const role = await guild.roles.fetch(rid).catch(() => null);
+        if (!role) {
+          json(res, 400, { ok: false, error: "Invalid announcement role." });
+          return true;
+        }
+        patch.announcementRoleId = rid;
+      }
+    }
 
     const merged = await mergeDockedCargoConfig(pool, guildRowId, rustServerId, patch);
     json(res, 200, { ok: true, setupComplete: isDockedCargoConfigComplete(merged) });
@@ -1004,11 +1017,17 @@ export async function handleAdminPanelRoutes(
       json(res, 400, { ok: false, error: "Complete Docked Cargo setup first." });
       return true;
     }
-    if (cfg.automationStarted && !force) {
+    if (cfg.automationStarted && isDockedCargoLoopRunning(rustServerId) && !force) {
       json(res, 409, { ok: false, error: "already_started", needsForce: true });
       return true;
     }
-    const started = startDockedCargoAutomation(pool, guildRowId, rustServerId, force ? { force: true } : undefined);
+    const started = startDockedCargoAutomation(
+      pool,
+      guildRowId,
+      rustServerId,
+      client,
+      force ? { force: true } : undefined
+    );
     if (!started.ok) {
       json(res, 500, { ok: false, error: started.error ?? "Start failed" });
       return true;

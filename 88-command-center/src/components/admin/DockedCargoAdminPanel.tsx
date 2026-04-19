@@ -36,6 +36,7 @@ type Config = {
   lockedCrates: number | null;
   timeDockedMinutes: number | null;
   announcementChannelId: string | null;
+  announcementRoleId: string | null;
   automationStarted: boolean;
   setupComplete: boolean;
 };
@@ -69,6 +70,7 @@ export function DockedCargoAdminPanel() {
   const [crates, setCrates] = useState("3");
   const [dockMin, setDockMin] = useState("30");
   const [channelId, setChannelId] = useState("");
+  const [roleId, setRoleId] = useState("");
   const [forceOpen, setForceOpen] = useState(false);
 
   useEffect(() => {
@@ -81,6 +83,7 @@ export function DockedCargoAdminPanel() {
     setCrates(cfgData.lockedCrates != null ? String(cfgData.lockedCrates) : "3");
     setDockMin(cfgData.timeDockedMinutes != null ? String(cfgData.timeDockedMinutes) : "30");
     setChannelId(cfgData.announcementChannelId ?? "");
+    setRoleId(cfgData.announcementRoleId ?? "");
   }, [cfgData]);
 
   const busy = async (fn: () => Promise<void>) => {
@@ -107,6 +110,7 @@ export function DockedCargoAdminPanel() {
           lockedCrates: Number.isFinite(lc) ? lc : undefined,
           timeDockedMinutes: Number.isFinite(dm) ? dm : undefined,
           announcementChannelId: channelId || undefined,
+          announcementRoleId: roleId || undefined,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -131,6 +135,7 @@ export function DockedCargoAdminPanel() {
       toast.success(force ? "Docked Cargo force-started." : "Docked Cargo automation started.");
       setForceOpen(false);
       void refetch();
+      void qc.invalidateQueries({ queryKey: ["admin-docked-cargo", sid] });
     });
 
   if (!Number.isFinite(sid) || sid < 1) {
@@ -138,15 +143,17 @@ export function DockedCargoAdminPanel() {
   }
 
   const ch = meta?.channels ?? [];
+  const roles = meta?.roles ?? [];
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
       <div>
         <h2 className="text-2xl font-rajdhani font-bold text-foreground">Docked Cargo</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Match Discord <span className="font-mono">/docked-cargo-setup</span> — coordinates, timers, Rust{" "}
-          <span className="font-mono">say</span> messages, and crate count. Start automation once; use force if already
-          running.
+          Match Discord <span className="font-mono">/docked-cargo-setup</span> — channel + role for Discord pings,
+          coordinates, timers, Rust <span className="font-mono">say</span> messages, and crates.{" "}
+          <span className="font-mono">Start automation</span> runs the same flow as{" "}
+          <span className="font-mono">/docked-cargo-start</span> (use force if automation is already running).
         </p>
       </div>
 
@@ -180,6 +187,21 @@ export function DockedCargoAdminPanel() {
                 {ch.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     #{c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Announcement role (ping)</Label>
+            <Select value={roleId} onValueChange={setRoleId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Role" />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                {roles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    @{r.name}
                   </SelectItem>
                 ))}
               </SelectContent>

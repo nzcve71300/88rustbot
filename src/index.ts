@@ -22,6 +22,7 @@ import {
   handleDockedCargoChannelSelect,
   handleDockedCargoModal,
   handleDockedCargoRestart,
+  handleDockedCargoRoleSelect,
 } from "./dockedCargo/interactions.js";
 import { handleOneV1Accept, handleOneV1Duck, isOneV1AcceptButton, isOneV1DuckButton } from "./onev1/acceptFlow.js";
 
@@ -86,6 +87,24 @@ async function main() {
           } catch {
             /* ignore */
           }
+        }
+      }
+      return;
+    }
+
+    if (interaction.isRoleSelectMenu() && interaction.customId.startsWith("dc:rl:")) {
+      try {
+        await handleDockedCargoRoleSelect(interaction);
+      } catch (err) {
+        console.error(err);
+        try {
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+          } else {
+            await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+          }
+        } catch {
+          /* ignore */
         }
       }
       return;

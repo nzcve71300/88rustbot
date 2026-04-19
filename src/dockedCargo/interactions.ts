@@ -5,12 +5,14 @@ import {
   ChannelSelectMenuBuilder,
   ChannelType,
   ModalBuilder,
+  RoleSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   type ButtonInteraction,
   type ChannelSelectMenuInteraction,
   type ModalSubmitInteraction,
   type Message,
+  type RoleSelectMenuInteraction,
 } from "discord.js";
 import { memberHasAdminRole } from "../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../constants.js";
@@ -37,6 +39,10 @@ export function dockedCargoModalCustomId(kind: string, rustServerId: number): st
 
 export function dockedCargoChannelCustomId(rustServerId: number): string {
   return `${PREFIX}:ch:${rustServerId}`;
+}
+
+export function dockedCargoRoleCustomId(rustServerId: number): string {
+  return `${PREFIX}:rl:${rustServerId}`;
 }
 
 function parseServerId(customId: string): number | null {
@@ -72,7 +78,14 @@ export function buildDockedCargoSetupComponents(rustServerId: number) {
       .setMinValues(1)
       .setMaxValues(1)
   );
-  return [row1, row2];
+  const row3 = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
+    new RoleSelectMenuBuilder()
+      .setCustomId(dockedCargoRoleCustomId(rustServerId))
+      .setPlaceholder("Announcement role (ping)")
+      .setMinValues(1)
+      .setMaxValues(1)
+  );
+  return [row1, row2, row3];
 }
 
 export function buildDockedCargoSetupEmbed(saved: boolean): ReturnType<typeof baseEmbed> {
@@ -84,7 +97,7 @@ export function buildDockedCargoSetupEmbed(saved: boolean): ReturnType<typeof ba
   return baseEmbed()
     .setTitle("Docked Cargo — setup")
     .setDescription(
-      "**Let's get your Auto event setup.**\n\nChoose from the buttons below to setup your Cargo event, then pick an **announcement channel** from the dropdown."
+      "**Let's get your Auto event setup.**\n\nUse the buttons below, then choose an **announcement channel** and **announcement role** (for pings on spawn/leave)."
     );
 }
 
@@ -376,7 +389,7 @@ export async function handleDockedCargoRestart(interaction: ButtonInteraction): 
     return;
   }
 
-  const started = startDockedCargoAutomation(pool, guildRowId, rustServerId, { force: true });
+  const started = startDockedCargoAutomation(pool, guildRowId, rustServerId, interaction.client, { force: true });
   if (!started.ok) {
     await interaction.update({
       content: started.error ?? "Could not restart automation.",
@@ -421,5 +434,33 @@ export async function handleDockedCargoChannelSelect(interaction: ChannelSelectM
   }
   await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { announcementChannelId: id });
   await interaction.reply({ content: `Announcement channel set to <#${id}>.`, ephemeral: true });
+  await tryFinishSetupMessage(interaction.message, guildRowId, rustServerId);
+}
+
+export async function handleDockedCargoRoleSelect(interaction: RoleSelectMenuInteraction): Promise<void> {
+  if (!interaction.guild || !interaction.member) {
+    await interaction.reply({ content: "Invalid context.", ephemeral: true });
+    return;
+  }
+  if (!memberHasAdminRole(interaction.member, interaction.guild)) {
+    await interaction.reply({
+      content: `You need the **${ADMIN_ROLE_NAME}** role.`,
+      ephemeral: true,
+    });
+    return;
+  }
+  const rustServerId = parseServerId(interaction.customId);
+  if (!rustServerId) {
+    await interaction.reply({ content: "Invalid menu.", ephemeral: true });
+    return;
+  }
+  const guildRowId = await getOrCreateGuildRow(pool, interaction.guild.id);
+  const id = interaction.values[0];
+  if (!id) {
+    await interaction.reply({ content: "Pick a role.", ephemeral: true });
+    return;
+  }
+  await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { announcementRoleId: id });
+  await interaction.reply({ content: `Announcement role set to <@&${id}>.`, ephemeral: true });
   await tryFinishSetupMessage(interaction.message, guildRowId, rustServerId);
 }

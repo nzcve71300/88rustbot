@@ -1,4 +1,5 @@
 import type { Pool } from "mysql2/promise";
+import type { Client } from "discord.js";
 import { config } from "../config.js";
 import { decryptSecret } from "../crypto/passwordVault.js";
 import {
@@ -10,6 +11,7 @@ import {
 import { getRustServerByIdForGuild } from "../db/rustServers.js";
 import { notifyGuildWebPush } from "../push/webPushNotify.js";
 import { runWebRconCommand } from "../rcon/webrcon.js";
+import { announceDockedCargoEvent } from "./discordAnnounce.js";
 
 export type DockedCargoPhase = "off" | "docked" | "between";
 
@@ -67,7 +69,8 @@ async function runSpawnAndDock(
   pool: Pool,
   guildRowId: number,
   rustServerId: number,
-  cfg: DockedCargoConfigRow
+  cfg: DockedCargoConfigRow,
+  client: Client
 ): Promise<void> {
   const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
   if (!srv) throw new Error("Rust server not found");
@@ -107,6 +110,16 @@ async function runSpawnAndDock(
     );
   }
 
+  if (cfg.announcementChannelId) {
+    await announceDockedCargoEvent(
+      client,
+      cfg.announcementChannelId,
+      cfg.announcementRoleId,
+      "Docked Cargo — spawned",
+      `**${srv.nickname}** — Cargo has **docked**. Get in-game and contest the ship.`
+    );
+  }
+
   void notifyGuildWebPush(pool, guildRowId, rustServerId, {
     title: "Grindset",
     body: "Docked Cargo is active on this server.",
@@ -118,7 +131,8 @@ async function runUndock(
   pool: Pool,
   guildRowId: number,
   rustServerId: number,
-  cfg: DockedCargoConfigRow
+  cfg: DockedCargoConfigRow,
+  client: Client
 ): Promise<void> {
   const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
   if (!srv) return;
@@ -147,6 +161,15 @@ async function runUndock(
       "say leave"
     );
   }
+  if (cfg.announcementChannelId) {
+    await announceDockedCargoEvent(
+      client,
+      cfg.announcementChannelId,
+      cfg.announcementRoleId,
+      "Docked Cargo — leaving",
+      `**${srv.nickname}** — The cargo ship is **undocking** and leaving the area.`
+    );
+  }
 }
 
 /**
@@ -157,6 +180,7 @@ export function startDockedCargoAutomation(
   pool: Pool,
   guildRowId: number,
   rustServerId: number,
+  client: Client,
   options?: { force?: boolean }
 ): { ok: true } | { ok: false; error: string } {
   if (loops.has(rustServerId) && !options?.force) {
@@ -176,12 +200,13 @@ export function startDockedCargoAutomation(
         const cfg = await getDockedCargoConfig(pool, guildRowId, rustServerId);
         if (!cfg || !isDockedCargoConfigComplete(cfg)) {
           console.warn("[docked-cargo] config incomplete, stopping loop", rustServerId);
+          void mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: false }).catch(() => {});
           break;
         }
 
         setPhase(rustServerId, "docked");
         try {
-          await runSpawnAndDock(pool, guildRowId, rustServerId, cfg);
+          await runSpawnAndDock(pool, guildRowId, rustServerId, cfg, client);
         } catch (e) {
           console.error("[docked-cargo] spawn sequence failed:", e);
         }
@@ -194,9 +219,12 @@ export function startDockedCargoAutomation(
         }
 
         const cfg2 = await getDockedCargoConfig(pool, guildRowId, rustServerId);
-        if (!cfg2 || !isDockedCargoConfigComplete(cfg2)) break;
+        if (!cfg2 || !isDockedCargoConfigComplete(cfg2)) {
+          void mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: false }).catch(() => {});
+          break;
+        }
 
-        await runUndock(pool, guildRowId, rustServerId, cfg2);
+        await runUndock(pool, guildRowId, rustServerId, cfg2, client);
 
         setPhase(rustServerId, "between");
         const waitMs = cfg2.howOftenHours! * 3600_000;

@@ -579,6 +579,7 @@ export async function ensureSchema(): Promise<void> {
         locked_crates TINYINT UNSIGNED NULL,
         time_docked_minutes INT UNSIGNED NULL,
         announcement_channel_id VARCHAR(32) NULL,
+        announcement_role_id VARCHAR(32) NULL,
         automation_started TINYINT(1) NOT NULL DEFAULT 0,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -587,6 +588,8 @@ export async function ensureSchema(): Promise<void> {
         CONSTRAINT fk_docked_cargo_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await ignoreDup("ALTER TABLE docked_cargo_configs ADD COLUMN announcement_role_id VARCHAR(32) NULL");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS site_inbox (

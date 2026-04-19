@@ -13,6 +13,7 @@ export type DockedCargoConfigRow = {
   lockedCrates: number | null;
   timeDockedMinutes: number | null;
   announcementChannelId: string | null;
+  announcementRoleId: string | null;
   automationStarted: boolean;
 };
 
@@ -30,6 +31,7 @@ function rowToConfig(r: Record<string, unknown>): DockedCargoConfigRow {
     lockedCrates: r.locked_crates != null ? Number(r.locked_crates) : null,
     timeDockedMinutes: r.time_docked_minutes != null ? Number(r.time_docked_minutes) : null,
     announcementChannelId: r.announcement_channel_id != null ? String(r.announcement_channel_id) : null,
+    announcementRoleId: r.announcement_role_id != null ? String(r.announcement_role_id) : null,
     automationStarted: Number(r.automation_started) === 1,
   };
 }
@@ -41,7 +43,7 @@ export async function getDockedCargoConfig(
 ): Promise<DockedCargoConfigRow | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT guild_id, rust_server_id, coord_x, coord_y, coord_z, how_often_hours, in_game_message,
-            say_enabled, leave_message, locked_crates, time_docked_minutes, announcement_channel_id, automation_started
+            say_enabled, leave_message, locked_crates, time_docked_minutes, announcement_channel_id, announcement_role_id, automation_started
      FROM docked_cargo_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
     { gid: guildRowId, sid: rustServerId }
   );
@@ -60,6 +62,7 @@ export type DockedCargoPatch = Partial<{
   lockedCrates: number | null;
   timeDockedMinutes: number | null;
   announcementChannelId: string | null;
+  announcementRoleId: string | null;
   automationStarted: boolean;
 }>;
 
@@ -84,14 +87,16 @@ export async function mergeDockedCargoConfig(
     timeDockedMinutes: patch.timeDockedMinutes !== undefined ? patch.timeDockedMinutes : cur?.timeDockedMinutes ?? null,
     announcementChannelId:
       patch.announcementChannelId !== undefined ? patch.announcementChannelId : cur?.announcementChannelId ?? null,
+    announcementRoleId:
+      patch.announcementRoleId !== undefined ? patch.announcementRoleId : cur?.announcementRoleId ?? null,
     automationStarted: patch.automationStarted !== undefined ? patch.automationStarted : cur?.automationStarted ?? false,
   };
 
   await pool.query<ResultSetHeader>(
     `INSERT INTO docked_cargo_configs
       (guild_id, rust_server_id, coord_x, coord_y, coord_z, how_often_hours, in_game_message, say_enabled,
-       leave_message, locked_crates, time_docked_minutes, announcement_channel_id, automation_started)
-     VALUES (:gid, :sid, :cx, :cy, :cz, :hoh, :igm, :say, :lm, :lc, :tdm, :ach, :ast)
+       leave_message, locked_crates, time_docked_minutes, announcement_channel_id, announcement_role_id, automation_started)
+     VALUES (:gid, :sid, :cx, :cy, :cz, :hoh, :igm, :say, :lm, :lc, :tdm, :ach, :arole, :ast)
      ON DUPLICATE KEY UPDATE
        coord_x = VALUES(coord_x),
        coord_y = VALUES(coord_y),
@@ -103,6 +108,7 @@ export async function mergeDockedCargoConfig(
        locked_crates = VALUES(locked_crates),
        time_docked_minutes = VALUES(time_docked_minutes),
        announcement_channel_id = VALUES(announcement_channel_id),
+       announcement_role_id = VALUES(announcement_role_id),
        automation_started = VALUES(automation_started)`,
     {
       gid: merged.guildId,
@@ -117,6 +123,7 @@ export async function mergeDockedCargoConfig(
       lc: merged.lockedCrates,
       tdm: merged.timeDockedMinutes,
       ach: merged.announcementChannelId,
+      arole: merged.announcementRoleId,
       ast: merged.automationStarted ? 1 : 0,
     }
   );
@@ -130,6 +137,7 @@ export function isDockedCargoConfigComplete(c: DockedCargoConfigRow | null): boo
   if (c.lockedCrates == null || c.lockedCrates < 1 || c.lockedCrates > 5) return false;
   if (c.timeDockedMinutes == null || c.timeDockedMinutes < 1) return false;
   if (!c.announcementChannelId) return false;
+  if (!c.announcementRoleId) return false;
   if (c.sayEnabled) {
     if (!c.inGameMessage?.trim() || !c.leaveMessage?.trim()) return false;
   }

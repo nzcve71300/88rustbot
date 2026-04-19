@@ -37,6 +37,37 @@ import {
   leaveClanOnWebsite,
   promoteClanMember,
 } from "@/lib/clanApi";
+import { cn } from "@/lib/utils";
+
+function neonEventStatusClass(label: string): string {
+  const s = label.trim().toLowerCase();
+  if (s === "loading…") return "text-muted-foreground";
+  if (s === "no live event" || s === "not configured" || s === "not set up") {
+    return "text-orange-400 font-semibold drop-shadow-[0_0_10px_rgba(251,146,60,0.55)]";
+  }
+  if (s === "idle") {
+    return "text-yellow-300 font-semibold drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]";
+  }
+  if (
+    s === "active" ||
+    s === "wave live" ||
+    s === "doors closed" ||
+    s === "between waves" ||
+    s === "live match"
+  ) {
+    return "text-emerald-400 font-semibold drop-shadow-[0_0_10px_rgba(52,211,153,0.55)]";
+  }
+  if (s === "pending" || s === "waiting") {
+    return "text-amber-300 font-semibold drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]";
+  }
+  if (s === "canceled" || s === "cancelled") {
+    return "text-red-400 font-semibold drop-shadow-[0_0_10px_rgba(248,113,113,0.55)]";
+  }
+  if (s === "disabled") {
+    return "text-red-400/90 font-semibold drop-shadow-[0_0_8px_rgba(248,113,113,0.45)]";
+  }
+  return "text-cyan-300/90 font-medium drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]";
+}
 
 const ServerDetail = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -218,6 +249,47 @@ const ServerDetail = () => {
       match: null,
       ended: null,
     } as const);
+
+  const kothStatusLabel = useMemo(() => {
+    if (!events) return "Loading…";
+    if (events.koth.status === "active" && kothPhase === "door_delay") return "Doors closed";
+    if (events.koth.status === "active" && kothPhase === "wave_active") return "Wave live";
+    if (events.koth.status === "active" && kothPhase === "between_waves") return "Between waves";
+    if (events.koth.status === "active") return "Active";
+    if (events.koth.status === "pending") return "Pending";
+    return "No live event";
+  }, [events, kothPhase]);
+
+  const nuketownStatusLabel = useMemo(() => {
+    if (!events) return "Loading…";
+    if (nuketown.status === "active") return "Active";
+    if (nuketown.status === "pending") return "Pending";
+    return "No live event";
+  }, [events, nuketown.status]);
+
+  const onev1StatusLabel = useMemo(() => {
+    if (!events) return "Loading…";
+    if (!onev1.configured) return "Not set up";
+    if (!onev1.enabled) return "Disabled";
+    if (onev1.status === "running") return "Live match";
+    if (onev1.status === "pending") return "Waiting";
+    return "Idle";
+  }, [events, onev1]);
+
+  const mazeStatusLabel = useMemo(() => {
+    if (!events) return "Loading…";
+    const st = events?.maze?.status ?? "none";
+    if (st === "active") return "Active";
+    if (st === "pending") return "Pending";
+    return "No live event";
+  }, [events]);
+
+  const dockedCargoStatusLabel = useMemo(() => {
+    if (!events) return "Loading…";
+    if (events.dockedCargo?.active) return "Active";
+    if (events.dockedCargo?.configured) return "Idle";
+    return "Not configured";
+  }, [events]);
 
   if (!server) {
     return (
@@ -788,21 +860,7 @@ const ServerDetail = () => {
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <div className="flex items-center justify-between">
                 <div className="font-rajdhani font-bold text-foreground">KOTH EVENT</div>
-                <span className="text-xs text-muted-foreground">
-                  {!events
-                    ? "Loading…"
-                    : events.koth.status === "active" && kothPhase === "door_delay"
-                        ? "Doors closed"
-                        : events.koth.status === "active" && kothPhase === "wave_active"
-                          ? "Wave live"
-                          : events.koth.status === "active" && kothPhase === "between_waves"
-                            ? "Between waves"
-                            : events.koth.status === "active"
-                              ? "Active"
-                              : events.koth.status === "pending"
-                                ? "Pending"
-                                : "No live event"}
-                </span>
+                <span className={cn("text-xs", neonEventStatusClass(kothStatusLabel))}>{kothStatusLabel}</span>
               </div>
               {events?.koth.status === "active" &&
               typeof events.koth.currentWave === "number" &&
@@ -912,15 +970,7 @@ const ServerDetail = () => {
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <div className="flex items-center justify-between">
                 <div className="font-rajdhani font-bold text-foreground">NUKETOWN</div>
-                <span className="text-xs text-muted-foreground">
-                  {!events
-                    ? "Loading…"
-                    : nuketown.status === "active"
-                      ? "Active"
-                      : nuketown.status === "pending"
-                        ? "Pending"
-                        : "No live event"}
-                </span>
+                <span className={cn("text-xs", neonEventStatusClass(nuketownStatusLabel))}>{nuketownStatusLabel}</span>
               </div>
               <div className="mt-2 text-sm text-muted-foreground">
                 Joined: <span className="text-foreground font-semibold">{events ? nuketown.joined : "—"}</span>
@@ -1129,19 +1179,7 @@ const ServerDetail = () => {
                   <Swords className="h-5 w-5 shrink-0 text-violet-400" aria-hidden />
                   <div className="font-rajdhani font-bold text-foreground tracking-wide">1V1 DUELS</div>
                 </div>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {!events
-                    ? "Loading…"
-                    : !onev1.configured
-                      ? "Not set up"
-                      : !onev1.enabled
-                        ? "Disabled"
-                        : onev1.status === "running"
-                          ? "Live match"
-                          : onev1.status === "pending"
-                            ? "Waiting"
-                            : "Idle"}
-                </span>
+                <span className={cn("text-xs shrink-0", neonEventStatusClass(onev1StatusLabel))}>{onev1StatusLabel}</span>
               </div>
               {onev1InboxForServer.length > 0 ? (
                 <div className="mt-3 space-y-2">
@@ -1370,37 +1408,42 @@ const ServerDetail = () => {
               ) : null}
             </div>
 
-            <div className="rounded-lg border border-border bg-background/40 p-4">
+            <div
+              className={cn(
+                "rounded-lg border p-4 transition-shadow",
+                events?.dockedCargo?.active
+                  ? "border-cyan-500/50 bg-gradient-to-br from-cyan-500/15 via-background/80 to-violet-500/10 shadow-[0_0_24px_rgba(34,211,238,0.18)]"
+                  : "border-border bg-background/40"
+              )}
+            >
               <div className="flex items-center justify-between gap-2">
-                <div className="font-rajdhani font-bold text-foreground">DOCKED CARGO</div>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {!events
-                    ? "Loading…"
-                    : events.dockedCargo?.active
-                      ? "Active"
-                      : events.dockedCargo?.configured
-                        ? "Idle"
-                        : "Not configured"}
+                <div className="font-rajdhani font-bold text-foreground tracking-wide">DOCKED CARGO</div>
+                <span className={cn("text-xs shrink-0", neonEventStatusClass(dockedCargoStatusLabel))}>
+                  {dockedCargoStatusLabel}
                 </span>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Automated cargo ship — no join queue. You&apos;ll get a push notification when a run starts (if
-                subscribed).
-              </p>
+              {events?.dockedCargo?.active ? (
+                <div className="mt-3 rounded-md border border-cyan-400/30 bg-cyan-500/[0.08] px-3 py-2.5">
+                  <p className="text-sm font-rajdhani font-semibold text-cyan-200/95 tracking-wide">
+                    Cargo is docked — contest it in-game now.
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                    Ship is stopped at your configured coords. When the timer ends it will undock automatically.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                  {events?.dockedCargo?.configured
+                    ? "Automation is configured. When a run starts, status flips to Active here."
+                    : "Admins configure this in Discord or the admin panel."}
+                </p>
+              )}
             </div>
 
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <div className="flex items-center justify-between">
                 <div className="font-rajdhani font-bold text-foreground">MAZE EVENT</div>
-                <span className="text-xs text-muted-foreground">
-                  {!events
-                    ? "Loading…"
-                    : events.maze.status === "active"
-                    ? "Active"
-                    : events.maze.status === "pending"
-                      ? "Pending"
-                      : "No live event"}
-                </span>
+                <span className={cn("text-xs", neonEventStatusClass(mazeStatusLabel))}>{mazeStatusLabel}</span>
               </div>
               <div className="mt-2 text-sm text-muted-foreground">
                 Joined: <span className="text-foreground font-semibold">{events?.maze.joined ?? "—"}</span>

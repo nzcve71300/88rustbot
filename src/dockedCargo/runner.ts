@@ -84,7 +84,7 @@ async function runSpawnAndDock(
     host,
     port,
     password,
-    `entity.spawn cargoshipdynamic2 ${x} ${y} ${z}`,
+    `entity.spawn cargoshipdynamic2 ${x},${y},${z}`,
     "spawn"
   );
   await runRcon(

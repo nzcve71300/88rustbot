@@ -1371,6 +1371,25 @@ const ServerDetail = () => {
             </div>
 
             <div className="rounded-lg border border-border bg-background/40 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-rajdhani font-bold text-foreground">DOCKED CARGO</div>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {!events
+                    ? "Loading…"
+                    : events.dockedCargo?.active
+                      ? "Active"
+                      : events.dockedCargo?.configured
+                        ? "Idle"
+                        : "Not configured"}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Automated cargo ship — no join queue. You&apos;ll get a push notification when a run starts (if
+                subscribed).
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background/40 p-4">
               <div className="flex items-center justify-between">
                 <div className="font-rajdhani font-bold text-foreground">MAZE EVENT</div>
                 <span className="text-xs text-muted-foreground">

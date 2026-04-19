@@ -67,6 +67,12 @@ export type ServerEventsResponse = {
     };
     ended: null | { status: "ended"; expiresAtMs: number; payload: unknown };
   };
+  dockedCargo?: {
+    configured: boolean;
+    automationStarted: boolean;
+    phase: "off" | "docked" | "between";
+    active: boolean;
+  };
 };
 
 export type ServerLeaderboardResponse = {

@@ -14,6 +14,7 @@ const CATS = [
   { to: "clan", label: "Clan System" },
   { to: "positions", label: "Manage Positions" },
   { to: "metrics", label: "Server Metrics" },
+  { to: "docked-cargo", label: "Docked Cargo" },
 ] as const;
 
 const AdminServerLayout = () => {

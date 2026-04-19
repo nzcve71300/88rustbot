@@ -61,6 +61,8 @@ import {
   MAZE_MAX_SPAWN_POINTS,
   removeMazeEventMember,
 } from "../db/maze.js";
+import { getDockedCargoConfig, isDockedCargoConfigComplete } from "../db/dockedCargo.js";
+import { getDockedCargoRuntimePhase } from "../dockedCargo/runner.js";
 import {
   getLinkByDiscordUser,
   getLinkByIngameNameCi,
@@ -696,7 +698,7 @@ export function startCommandCenterApi(client?: Client): void {
           return;
         }
 
-        const [kCfg, kMeta, mCfg, mActive, nCfg, nMeta, ov1Cfg, ov1Match] = await Promise.all([
+        const [kCfg, kMeta, mCfg, mActive, nCfg, nMeta, ov1Cfg, ov1Match, dCfg] = await Promise.all([
           getKothConfig(pool, guildRowId, serverId),
           getActiveKothEventMeta(pool, guildRowId, serverId),
           getMazeConfig(pool, guildRowId, serverId),
@@ -705,6 +707,7 @@ export function startCommandCenterApi(client?: Client): void {
           getActiveNuketownEventMeta(pool, guildRowId, serverId),
           getOneV1Config(pool, guildRowId, serverId),
           getMatchForServer(pool, serverId),
+          getDockedCargoConfig(pool, guildRowId, serverId),
         ]);
 
         const [kEnded, mEnded, nEnded, ov1Ended] = await Promise.all([
@@ -892,6 +895,12 @@ export function startCommandCenterApi(client?: Client): void {
             ended: ov1Ended
               ? { status: "ended", expiresAtMs: ov1Ended.expiresAtMs, payload: ov1Ended.payload }
               : null,
+          },
+          dockedCargo: {
+            configured: isDockedCargoConfigComplete(dCfg),
+            automationStarted: dCfg?.automationStarted ?? false,
+            phase: getDockedCargoRuntimePhase(serverId),
+            active: getDockedCargoRuntimePhase(serverId) === "docked",
           },
         });
         return;

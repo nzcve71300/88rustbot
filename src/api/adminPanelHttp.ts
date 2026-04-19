@@ -57,6 +57,13 @@ import { onev1RespawnWait } from "../onev1/respawnWait.js";
 import { requestStopOneV1 } from "../onev1/runner.js";
 import { KOTH_RCON_SETUP, MAZE_RCON_SETUP, runSayRcon } from "../rcon/eventBroadcasts.js";
 import { notifyGuildWebPush } from "../push/webPushNotify.js";
+import {
+  type DockedCargoPatch,
+  getDockedCargoConfig,
+  isDockedCargoConfigComplete,
+  mergeDockedCargoConfig,
+} from "../db/dockedCargo.js";
+import { startDockedCargoAutomation } from "../dockedCargo/runner.js";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body), "utf8");
@@ -897,6 +904,117 @@ export async function handleAdminPanelRoutes(
         players: { min: 0, max: 100 },
       },
     });
+    return true;
+  }
+
+  if (rest === "docked-cargo/config" && method === "GET") {
+    const cfg = await getDockedCargoConfig(pool, guildRowId, rustServerId);
+    json(res, 200, {
+      ok: true,
+      config: cfg
+        ? {
+            coordX: cfg.coordX,
+            coordY: cfg.coordY,
+            coordZ: cfg.coordZ,
+            coordinates:
+              cfg.coordX != null && cfg.coordY != null && cfg.coordZ != null
+                ? `${cfg.coordX},${cfg.coordY},${cfg.coordZ}`
+                : "",
+            howOftenHours: cfg.howOftenHours,
+            inGameMessage: cfg.inGameMessage,
+            sayEnabled: cfg.sayEnabled,
+            leaveMessage: cfg.leaveMessage,
+            lockedCrates: cfg.lockedCrates,
+            timeDockedMinutes: cfg.timeDockedMinutes,
+            announcementChannelId: cfg.announcementChannelId,
+            automationStarted: cfg.automationStarted,
+            setupComplete: isDockedCargoConfigComplete(cfg),
+          }
+        : null,
+    });
+    return true;
+  }
+
+  if (rest === "docked-cargo/setup" && method === "POST") {
+    const raw = await readJsonBody(req);
+    const body = raw as {
+      coordinates?: string;
+      howOftenHours?: number;
+      inGameMessage?: string;
+      sayEnabled?: boolean;
+      leaveMessage?: string;
+      lockedCrates?: number;
+      timeDockedMinutes?: number;
+      announcementChannelId?: string;
+    };
+    const patch: DockedCargoPatch = {};
+
+    if (body.coordinates !== undefined) {
+      const s = String(body.coordinates).trim();
+      const parts = s.split(/[,\s]+/).filter(Boolean);
+      if (parts.length === 3) {
+        const x = Number.parseFloat(parts[0]!);
+        const y = Number.parseFloat(parts[1]!);
+        const z = Number.parseFloat(parts[2]!);
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          patch.coordX = x;
+          patch.coordY = y;
+          patch.coordZ = z;
+        }
+      }
+    }
+    if (body.howOftenHours !== undefined) {
+      const h = Number(body.howOftenHours);
+      if (Number.isFinite(h) && h > 0) patch.howOftenHours = h;
+    }
+    if (body.inGameMessage !== undefined) patch.inGameMessage = String(body.inGameMessage);
+    if (body.sayEnabled !== undefined) patch.sayEnabled = Boolean(body.sayEnabled);
+    if (body.leaveMessage !== undefined) patch.leaveMessage = String(body.leaveMessage);
+    if (body.lockedCrates !== undefined) {
+      const n = Number(body.lockedCrates);
+      if (Number.isFinite(n) && n >= 1 && n <= 5) patch.lockedCrates = n;
+    }
+    if (body.timeDockedMinutes !== undefined) {
+      const n = Number(body.timeDockedMinutes);
+      if (Number.isFinite(n) && n >= 1) patch.timeDockedMinutes = n;
+    }
+    if (body.announcementChannelId !== undefined) {
+      const ch = String(body.announcementChannelId).trim();
+      if (ch) {
+        const fetched = await guild.channels.fetch(ch).catch(() => null);
+        if (!fetched || !(fetched instanceof TextChannel)) {
+          json(res, 400, { ok: false, error: "Invalid announcement channel." });
+          return true;
+        }
+        patch.announcementChannelId = ch;
+      }
+    }
+
+    const merged = await mergeDockedCargoConfig(pool, guildRowId, rustServerId, patch);
+    json(res, 200, { ok: true, setupComplete: isDockedCargoConfigComplete(merged) });
+    return true;
+  }
+
+  if (rest === "docked-cargo/start" && method === "POST") {
+    const raw = await readJsonBody(req);
+    const body = raw as { force?: boolean };
+    const force = Boolean(body.force);
+    const cfg = await getDockedCargoConfig(pool, guildRowId, rustServerId);
+    if (!cfg || !isDockedCargoConfigComplete(cfg)) {
+      json(res, 400, { ok: false, error: "Complete Docked Cargo setup first." });
+      return true;
+    }
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
+      return true;
+    }
+    const started = startDockedCargoAutomation(pool, guildRowId, rustServerId, force ? { force: true } : undefined);
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
+      return true;
+    }
+    await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: true });
+    json(res, 200, { ok: true, started: true });
     return true;
   }
 

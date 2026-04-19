@@ -565,6 +565,30 @@ export async function ensureSchema(): Promise<void> {
     `);
 
     await conn.query(`
+      CREATE TABLE IF NOT EXISTS docked_cargo_configs (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        guild_id BIGINT UNSIGNED NOT NULL,
+        rust_server_id BIGINT UNSIGNED NOT NULL,
+        coord_x DOUBLE NULL,
+        coord_y DOUBLE NULL,
+        coord_z DOUBLE NULL,
+        how_often_hours DECIMAL(12,4) NULL,
+        in_game_message TEXT NULL,
+        say_enabled TINYINT(1) NOT NULL DEFAULT 1,
+        leave_message TEXT NULL,
+        locked_crates TINYINT UNSIGNED NULL,
+        time_docked_minutes INT UNSIGNED NULL,
+        announcement_channel_id VARCHAR(32) NULL,
+        automation_started TINYINT(1) NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_docked_cargo_server (guild_id, rust_server_id),
+        CONSTRAINT fk_docked_cargo_guild FOREIGN KEY (guild_id) REFERENCES guilds (id) ON DELETE CASCADE,
+        CONSTRAINT fk_docked_cargo_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await conn.query(`
       CREATE TABLE IF NOT EXISTS site_inbox (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         target_discord_user_id BIGINT UNSIGNED NOT NULL,

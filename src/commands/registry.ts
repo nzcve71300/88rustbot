@@ -31,6 +31,8 @@ import { nuketownJoinCommand } from "./Player Commands/nuketown-join.js";
 import { nuketownLeaveCommand } from "./Player Commands/nuketown-leave.js";
 import { onev1SetupCommand } from "./Admin commands/onev1-setup.js";
 import { onev1DeleteCommand } from "./Admin commands/onev1-delete.js";
+import { dockedCargoSetupCommand } from "./Admin commands/docked-cargo-setup.js";
+import { dockedCargoStartCommand } from "./Admin commands/docked-cargo-start.js";
 import { onev1Command } from "./Player Commands/onev1.js";
 
 export type SlashCommandModule = {
@@ -68,6 +70,8 @@ const slashCommandsAll: SlashCommandModule[] = [
   nuketownDeleteCommand,
   onev1SetupCommand,
   onev1DeleteCommand,
+  dockedCargoSetupCommand,
+  dockedCargoStartCommand,
   setCommand,
   unlinkCommand,
 

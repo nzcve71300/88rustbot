@@ -17,6 +17,12 @@ import { handleLinkButton, LINK_CANCEL_ID, LINK_CONFIRM_ID } from "./linking/lin
 import { handleUnlinkButton, UNLINK_CANCEL_ID, UNLINK_CONFIRM_ID } from "./linking/unlinkFlow.js";
 import { startCommandCenterApi } from "./api/commandCenterApi.js";
 import { startServerMetricsPoller } from "./metrics/serverMetricsPoller.js";
+import {
+  handleDockedCargoButton,
+  handleDockedCargoChannelSelect,
+  handleDockedCargoModal,
+  handleDockedCargoRestart,
+} from "./dockedCargo/interactions.js";
 import { handleOneV1Accept, handleOneV1Duck, isOneV1AcceptButton, isOneV1DuckButton } from "./onev1/acceptFlow.js";
 
 async function main() {
@@ -85,7 +91,55 @@ async function main() {
       return;
     }
 
+    if (interaction.isChannelSelectMenu() && interaction.customId.startsWith("dc:ch:")) {
+      try {
+        await handleDockedCargoChannelSelect(interaction);
+      } catch (err) {
+        console.error(err);
+        try {
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+          } else {
+            await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith("dc:rs:")) {
+        try {
+          await handleDockedCargoRestart(interaction);
+        } catch (err) {
+          console.error(err);
+          try {
+            if (interaction.deferred || interaction.replied) {
+              await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+            } else {
+              await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
+      if (interaction.customId.startsWith("dc:b:")) {
+        try {
+          await handleDockedCargoButton(interaction);
+        } catch (err) {
+          console.error(err);
+          try {
+            await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
       if (isOneV1AcceptButton(interaction.customId)) {
         try {
           await handleOneV1Accept(interaction);
@@ -154,6 +208,23 @@ async function main() {
     }
 
     if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith("dc:m:")) {
+        try {
+          await handleDockedCargoModal(interaction);
+        } catch (err) {
+          console.error(err);
+          try {
+            if (interaction.deferred || interaction.replied) {
+              await interaction.followUp({ content: "Something went wrong.", ephemeral: true });
+            } else {
+              await interaction.reply({ content: "Something went wrong.", ephemeral: true });
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
       if (interaction.customId === clanJoinCustomIds.modal) {
         try {
           await handleJoinClanModal(interaction);

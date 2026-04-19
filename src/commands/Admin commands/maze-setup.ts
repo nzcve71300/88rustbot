@@ -21,7 +21,7 @@ import { notifyGuildWebPush } from "../../push/webPushNotify.js";
 export const mazeSetupCommand = {
   data: new SlashCommandBuilder()
     .setName("maze-setup")
-    .setDescription("Configure the Maze Event (announcements, schedule, duration, kit, respawn). Coords: /manage-positions.")
+    .setDescription("Configure Maze: channel, schedule, duration, kit, respawn. Spawn coords: Manage Positions.")
     .addStringOption((o) =>
       o.setName("server").setDescription("Rust server").setRequired(true).setAutocomplete(true)
     )

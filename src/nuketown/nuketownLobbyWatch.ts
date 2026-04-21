@@ -28,7 +28,8 @@ export function scheduleNuketownLobbyWatch(
   channelId: string,
   kitName: string,
   teamLimit: number,
-  gateFrequency: number
+  gateFrequency: number,
+  maxClans: number = 4
 ): void {
   void (async () => {
     try {
@@ -37,7 +38,7 @@ export function scheduleNuketownLobbyWatch(
         if (!m || m.status !== "lobby") return;
         const teams = await listNuketownTeams(pool, m.id);
         const now = Date.now();
-        if (teams.length >= 4) {
+        if (teams.length >= Math.max(2, Math.min(4, maxClans))) {
           await setNuketownLobbyEndsAtNow(pool, m.id);
           break;
         }

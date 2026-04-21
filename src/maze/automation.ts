@@ -135,7 +135,17 @@ async function openAutomatedMazeLobby(pool: Pool, client: Client, guildRowId: nu
   const serverName = srv?.nickname ?? "Server";
 
   const views = await listMazeSpawnViews(pool, guildRowId, lobby.eventId);
-  await updateMazeMessage(client, cfg.announcementChannelId, cfg.messageId, serverName, serverName, views, null, null);
+  const meta = await getActiveMazeEventMeta(pool, guildRowId, rustServerId);
+  await updateMazeMessage(
+    client,
+    cfg.announcementChannelId,
+    cfg.messageId,
+    serverName,
+    serverName,
+    views,
+    cfg.durationMinutes ?? null,
+    meta?.lobbyEndsAtMs ?? null
+  );
 
   void notifyGuildWebPush(pool, guildRowId, rustServerId, {
     title: "Grindset",

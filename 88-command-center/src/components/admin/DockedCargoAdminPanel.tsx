@@ -138,12 +138,30 @@ export function DockedCargoAdminPanel() {
       void qc.invalidateQueries({ queryKey: ["admin-docked-cargo", sid] });
     });
 
+  const doToggleAutomation = (enabled: boolean) =>
+    busy(async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/docked-cargo/automation`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; needsForce?: boolean };
+      if (res.status === 409 && j.needsForce) {
+        setForceOpen(true);
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Update failed");
+      toast.success(enabled ? "Automation enabled." : "Automation disabled.");
+      void refetch();
+      void qc.invalidateQueries({ queryKey: ["admin-docked-cargo", sid] });
+    });
+
   if (!Number.isFinite(sid) || sid < 1) {
     return <p className="text-destructive text-sm">Invalid server.</p>;
   }
 
   const ch = meta?.channels ?? [];
   const roles = meta?.roles ?? [];
+  const autoOn = cfgData?.automationStarted === true;
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
@@ -242,9 +260,39 @@ export function DockedCargoAdminPanel() {
             <Button type="button" onClick={() => void save()}>
               Save settings
             </Button>
-            <Button type="button" variant="secondary" onClick={() => void doStart(false)}>
-              Start automation
+            <Button type="button" variant="secondary" onClick={() => void doStart(false)} disabled={!cfgData?.setupComplete}>
+              {autoOn ? "Already enabled" : "Start automation"}
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-rajdhani text-lg">Automation</CardTitle>
+          <CardDescription>Toggle Docked Cargo automation on/off for this server.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">Automation</span>
+              <span className="text-xs text-muted-foreground">Stops future cycles when turned off.</span>
+            </div>
+            <Switch
+              checked={autoOn}
+              disabled={!cfgData?.setupComplete}
+              onCheckedChange={(v) => void doToggleAutomation(v)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" onClick={() => void doStart(true)} disabled={!cfgData?.setupComplete}>
+              Force start now
+            </Button>
+            {autoOn ? (
+              <span className="text-xs text-emerald-400/90 self-center">Automation is ON</span>
+            ) : (
+              <span className="text-xs text-muted-foreground self-center">Automation is OFF</span>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -8,7 +8,7 @@ import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { countGuildServers, insertRustServer } from "../../db/rustServers.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { pool } from "../../db/pool.js";
-import { emoteKitBridge } from "../../rcon/emoteKitBridge.js";
+import { rconConsoleFanout } from "../../rcon/consoleFanout.js";
 import { verifyWebRconConnection } from "../../rcon/webrcon.js";
 
 const IPV4 =
@@ -148,9 +148,9 @@ export const setupServerCommand = {
     }
 
     try {
-      await emoteKitBridge.refresh(pool);
+      await rconConsoleFanout.refresh(pool);
     } catch (err) {
-      console.error("[emote kit] refresh after setup-server failed:", err);
+      console.error("[rcon console] refresh after setup-server failed:", err);
     }
 
     await interaction.editReply({

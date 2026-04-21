@@ -46,10 +46,14 @@ export function renderNuketownEmbed(
   teams: NuketownTeamView[],
   lobbyEndsAtMs: number | null,
   teamLimit: number,
+  mode?: "nuketown" | "tournament" | null,
   eventNumber?: number | null
 ) {
-  const isTournament = teams.length >= 3;
-  const eventName = isTournament ? "Nuketown Team Tournament (4 teams Bo3)" : "Nuketown Team vs Team (2 teams Bo3)";
+  const inferredTournament = teams.length >= 3;
+  const isTournament = mode === "tournament" ? true : mode === "nuketown" ? false : inferredTournament;
+  const eventName = isTournament
+    ? "Nuketown Tournament (4 clans • Bo3)"
+    : "Nuketown (2 clans • Bo3)";
   const eventNo = eventNumber != null ? ` #${eventNumber}` : "";
 
   const countdown = lobbyEndsAtMs != null ? `<t:${Math.floor(lobbyEndsAtMs / 1000)}:R>` : "";

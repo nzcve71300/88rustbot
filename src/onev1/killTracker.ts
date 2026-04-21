@@ -1,6 +1,6 @@
 import { parseAnyKillLine } from "../koth/killParse.js";
 
-/** MySQL / callers may pass numeric string; Map keys must match emoteKitBridge `row.id`. */
+/** MySQL / callers may pass numeric string; Map keys use Rust server id. */
 function rustSid(id: number): number {
   return Number(id);
 }

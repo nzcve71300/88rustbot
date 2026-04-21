@@ -999,7 +999,9 @@ export function startCommandCenterApi(client?: Client): void {
         const serverName = srv?.nickname ?? "Server";
 
         if (eventType === "nuketown") {
-          const config = await getNuketownConfig(pool, guildRowId, serverId);
+          const modeParam = new URL(req.url ?? "http://localhost").searchParams.get("mode") ?? "nuketown";
+          const mode = modeParam === "tournament" ? "tournament" : "nuketown";
+          const config = await getNuketownConfig(pool, guildRowId, serverId, mode);
           if (!config || !config.messageId) {
             json(res, 409, { ok: false, error: "Nuketown is not setup." });
             return;
@@ -1016,7 +1018,7 @@ export function startCommandCenterApi(client?: Client): void {
               json(res, 409, { ok: false, error: EVENT_JOIN_BLOCKED_MESSAGE });
               return;
             }
-            const lobby = await ensureLobbyNuketownForJoin(pool, guildRowId, serverId, 5);
+            const lobby = await ensureLobbyNuketownForJoin(pool, guildRowId, serverId, 5, mode);
             if (!lobby.ok) {
               json(res, 409, { ok: false, error: "Nuketown already started. You can't join mid-match." });
               return;
@@ -1026,13 +1028,14 @@ export function startCommandCenterApi(client?: Client): void {
             let slot = await getNuketownTeamSlot(pool, eventId, clan.clanId);
             if (slot == null) {
               const currentTeams = await listNuketownTeams(pool, eventId);
-              if (currentTeams.length >= 4) {
-                json(res, 409, { ok: false, error: "This Nuketown lobby already has 4 clans." });
+              const maxClans = mode === "tournament" ? 4 : 2;
+              if (currentTeams.length >= maxClans) {
+                json(res, 409, { ok: false, error: `This Nuketown lobby already has ${maxClans} clans.` });
                 return;
               }
               const used = new Set(currentTeams.map((t) => t.slot));
               let found: number | null = null;
-              for (let i = 1; i <= 4; i++) {
+              for (let i = 1; i <= maxClans; i++) {
                 if (!used.has(i)) {
                   found = i;
                   break;
@@ -1085,6 +1088,7 @@ export function startCommandCenterApi(client?: Client): void {
                 views,
                 meta?.lobbyEndsAtMs ?? null,
                 config.teamLimit,
+                mode === "tournament" ? "tournament" : "nuketown",
                 meta?.id ?? eventId
               ).catch(() => {});
             }
@@ -1143,6 +1147,7 @@ export function startCommandCenterApi(client?: Client): void {
               views,
               activeEv.lobbyEndsAtMs,
               config!.teamLimit,
+              mode === "tournament" ? "tournament" : "nuketown",
               activeEv.id
             ).catch(() => {});
           }

@@ -249,6 +249,19 @@ export async function ensureSchema(): Promise<void> {
         team_limit TINYINT UNSIGNED NOT NULL,
         kit_name VARCHAR(64) NOT NULL,
         message_id BIGINT UNSIGNED NULL,
+        how_often_hours INT UNSIGNED NULL,
+        automation_started TINYINT(1) NOT NULL DEFAULT 0,
+        next_lobby_at_ms BIGINT UNSIGNED NULL,
+        tournament_announcement_channel_id BIGINT UNSIGNED NULL,
+        tournament_announcement_role_id BIGINT UNSIGNED NULL,
+        tournament_gates TINYINT UNSIGNED NULL,
+        tournament_gate_frequency INT UNSIGNED NULL,
+        tournament_team_limit TINYINT UNSIGNED NULL,
+        tournament_kit_name VARCHAR(64) NULL,
+        tournament_message_id BIGINT UNSIGNED NULL,
+        tournament_how_often_hours INT UNSIGNED NULL,
+        tournament_automation_started TINYINT(1) NOT NULL DEFAULT 0,
+        tournament_next_lobby_at_ms BIGINT UNSIGNED NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uq_nuketown_config_server (guild_id, rust_server_id),
@@ -263,6 +276,7 @@ export async function ensureSchema(): Promise<void> {
         guild_id BIGINT UNSIGNED NOT NULL,
         rust_server_id BIGINT UNSIGNED NOT NULL,
         status VARCHAR(16) NOT NULL,
+        mode VARCHAR(16) NOT NULL DEFAULT 'nuketown',
         kit_name VARCHAR(64) NULL,
         team_limit TINYINT UNSIGNED NULL,
         lobby_ends_at TIMESTAMP NULL,
@@ -275,6 +289,24 @@ export async function ensureSchema(): Promise<void> {
         CONSTRAINT fk_nuketown_events_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // --- Nuketown: add tournament + automation columns (existing installs) ---
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN how_often_hours INT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN automation_started TINYINT(1) NOT NULL DEFAULT 0");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN next_lobby_at_ms BIGINT UNSIGNED NULL");
+
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_announcement_channel_id BIGINT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_announcement_role_id BIGINT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_gates TINYINT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_gate_frequency INT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_team_limit TINYINT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_kit_name VARCHAR(64) NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_message_id BIGINT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_how_often_hours INT UNSIGNED NULL");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_automation_started TINYINT(1) NOT NULL DEFAULT 0");
+    await ignoreDup("ALTER TABLE nuketown_configs ADD COLUMN tournament_next_lobby_at_ms BIGINT UNSIGNED NULL");
+
+    await ignoreDup("ALTER TABLE nuketown_events ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'nuketown'");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS nuketown_event_teams (

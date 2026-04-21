@@ -101,17 +101,20 @@ export const nuketownJoinCommand = {
     }
     const eventId = lobby.eventId;
 
-    // Assign team slot (max 4 clans).
+    // Assign team slot (max 2 clans).
     let slot = await getNuketownTeamSlot(pool, eventId, clan.clanId);
     if (slot == null) {
       const currentTeams = await listNuketownTeams(pool, eventId);
-      if (currentTeams.length >= 4) {
-        await interaction.editReply({ embeds: [baseEmbed().setTitle("Teams full").setDescription("This Nuketown lobby already has **4 clans**.")] });
+      const maxClans = 2;
+      if (currentTeams.length >= maxClans) {
+        await interaction.editReply({
+          embeds: [baseEmbed().setTitle("Teams full").setDescription(`This Nuketown lobby already has **${maxClans} clans**.`)],
+        });
         return;
       }
       const used = new Set(currentTeams.map((t) => t.slot));
       let found: number | null = null;
-      for (let i = 1; i <= 4; i++) {
+      for (let i = 1; i <= maxClans; i++) {
         if (!used.has(i)) {
           found = i;
           break;
@@ -153,6 +156,7 @@ export const nuketownJoinCommand = {
       views,
       meta?.lobbyEndsAtMs ?? null,
       cfg.teamLimit,
+      null,
       meta?.id ?? eventId
     );
 

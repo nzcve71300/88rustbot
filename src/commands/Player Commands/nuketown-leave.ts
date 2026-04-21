@@ -113,6 +113,7 @@ export const nuketownLeaveCommand = {
       views,
       meta.lobbyEndsAtMs,
       cfg.teamLimit,
+      null,
       meta.id
     );
 

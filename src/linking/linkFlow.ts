@@ -49,7 +49,11 @@ export async function beginLink(interaction: ChatInputCommandInteraction, name: 
       embeds: [
         baseEmbed()
           .setTitle("Already linked")
-          .setDescription(`You are already linked as **${existing.ingameName}** in this Discord.`),
+          .setDescription(
+            [`You’re already linked in this Discord.`, "", `Current in-game name: **\`${existing.ingameName}\`**`, "", `If you need to change it, run \`/unlink\` (admin) then \`/link\` again.`].join(
+              "\n"
+            )
+          ),
       ],
       ephemeral: true,
     });
@@ -64,7 +68,11 @@ export async function beginLink(interaction: ChatInputCommandInteraction, name: 
   );
 
   await interaction.reply({
-    embeds: [baseEmbed().setTitle("Confirm link").setDescription(`Is this name correct?\n\n**${clean}**`)],
+    embeds: [
+      baseEmbed()
+        .setTitle("Link your Rust name")
+        .setDescription(["Please confirm this is your exact in-game name:", "", `**\`${clean}\`**`, "", "This will be used for events, stats, and brackets."].join("\n")),
+    ],
     components: [row],
     ephemeral: true,
   });
@@ -133,8 +141,6 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
         `Your in-game identity is now **\`${p.name}\`** on this Discord.`,
         "",
         "**Ready to play** — you can use bot commands, events, and anything here that needs your Rust name.",
-        "",
-        "*Tip: if your name changes in-game, run \`/link\` again with the new name.*",
       ].join("\n")
     );
 

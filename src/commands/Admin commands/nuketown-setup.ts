@@ -23,6 +23,16 @@ export const nuketownSetupCommand = {
     .addStringOption((o) =>
       o.setName("server").setDescription("Rust server in this Discord").setRequired(true).setAutocomplete(true)
     )
+    .addStringOption((o) =>
+      o
+        .setName("mode")
+        .setDescription("Which mode to setup")
+        .setRequired(true)
+        .addChoices(
+          { name: "Nuketown", value: "nuketown" },
+          { name: "Nuketown Tournament", value: "tournament" }
+        )
+    )
     .addChannelOption((o) =>
       o
         .setName("announcement_channel")
@@ -47,6 +57,14 @@ export const nuketownSetupCommand = {
     .addIntegerOption((o) =>
       o.setName("team_limit").setDescription("Max members per clan (1–5)").setRequired(true).setMinValue(1).setMaxValue(5)
     )
+    .addIntegerOption((o) =>
+      o
+        .setName("how_often_hours")
+        .setDescription("Automation: how often to open a new lobby (hours). Set 0 to disable automation scheduling.")
+        .setRequired(true)
+        .setMinValue(0)
+        .setMaxValue(168)
+    )
     .addStringOption((o) => o.setName("kitname").setDescription("Kit name to give players").setRequired(true)),
 
   async autocomplete(interaction: import("discord.js").AutocompleteInteraction) {
@@ -64,12 +82,23 @@ export const nuketownSetupCommand = {
     }
 
     const serverId = Number.parseInt(interaction.options.getString("server", true), 10);
+    const mode = interaction.options.getString("mode", true) === "tournament" ? "tournament" : "nuketown";
     const channel = interaction.options.getChannel("announcement_channel", true);
     const role = interaction.options.getRole("announcement_role", true);
-    const gates = interaction.options.getInteger("gates", true);
+    const gatesIn = interaction.options.getInteger("gates", true);
     const gateFrequency = interaction.options.getInteger("gate_frequency", true);
     const teamLimit = interaction.options.getInteger("team_limit", true);
+    const howOftenHours = interaction.options.getInteger("how_often_hours", true);
     const kitName = interaction.options.getString("kitname", true).trim();
+
+    const gates = mode === "tournament" ? 4 : gatesIn;
+    if (mode === "tournament" && gatesIn !== 4) {
+      await interaction.reply({
+        embeds: [baseEmbed().setTitle("Tournament gates").setDescription("Nuketown Tournament requires exactly **4 gates** (one per clan).")],
+        ephemeral: true,
+      });
+      return;
+    }
 
     if (!(channel instanceof TextChannel)) {
       await interaction.reply({ embeds: [baseEmbed().setTitle("Invalid channel").setDescription("Pick a text channel.")], ephemeral: true });
@@ -91,7 +120,7 @@ export const nuketownSetupCommand = {
     }
 
     // Create or reuse lobby with a 5 minute join window.
-    const lobby = await ensureLobbyNuketownForJoin(pool, guildRowId, serverId, 5);
+    const lobby = await ensureLobbyNuketownForJoin(pool, guildRowId, serverId, 5, mode);
     if (!lobby.ok) {
       await interaction.editReply({ embeds: [baseEmbed().setTitle("Already running").setDescription("Nuketown is already running on this server.")] });
       return;
@@ -104,10 +133,25 @@ export const nuketownSetupCommand = {
     // Post message and save config.
     const sent = await channel.send({
       content: `<@&${role.id}>`,
-      embeds: [renderNuketownEmbed(srv.nickname, srv.nickname, [], lobbyEndsAtMs, teamLimit, eventNumber)],
+      embeds: [renderNuketownEmbed(srv.nickname, srv.nickname, [], lobbyEndsAtMs, teamLimit, mode === "tournament" ? "tournament" : "nuketown", eventNumber)],
     });
 
-    await upsertNuketownConfig(pool, guildRowId, serverId, channel.id, role.id, gates, gateFrequency, teamLimit, kitName, sent.id);
+    await upsertNuketownConfig(
+      pool,
+      guildRowId,
+      serverId,
+      channel.id,
+      role.id,
+      gates,
+      gateFrequency,
+      teamLimit,
+      kitName,
+      sent.id,
+      howOftenHours > 0 ? howOftenHours : null,
+      false,
+      howOftenHours > 0 ? Date.now() + howOftenHours * 3600_000 : null,
+      mode
+    );
 
     void notifyGuildWebPush(pool, guildRowId, serverId, {
       title: "Grindset",
@@ -120,12 +164,22 @@ export const nuketownSetupCommand = {
         baseEmbed()
           .setTitle("Nuketown configured")
           .setDescription(
-            `Nuketown lobby posted in ${channel}. Players can join for up to **5 minutes** (or until **4 clans** fill). Use **/manage-positions** to save **Nuketown Gate 1–20** coordinates.`
+            `${mode === "tournament" ? "Nuketown Tournament" : "Nuketown"} lobby posted in ${channel}. Players can join for up to **5 minutes** (or until **${mode === "tournament" ? "4" : "2"} clans** fill). Use **/manage-positions** to save **Nuketown Gate 1–20** coordinates.`
           ),
       ],
     });
 
-    scheduleNuketownLobbyWatch(interaction.client, pool, guildRowId, serverId, channel.id, kitName, teamLimit, gateFrequency);
+    scheduleNuketownLobbyWatch(
+      interaction.client,
+      pool,
+      guildRowId,
+      serverId,
+      channel.id,
+      kitName,
+      teamLimit,
+      gateFrequency,
+      mode === "tournament" ? 4 : 2
+    );
   },
 };
 

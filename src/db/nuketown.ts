@@ -9,6 +9,9 @@ export type NuketownConfig = {
   teamLimit: number;
   kitName: string;
   messageId: string | null;
+  howOftenHours: number | null;
+  automationStarted: boolean;
+  nextLobbyAtMs: number | null;
 };
 
 export async function upsertNuketownConfig(
@@ -21,22 +24,57 @@ export async function upsertNuketownConfig(
   gateFrequency: number,
   teamLimit: number,
   kitName: string,
-  messageId: string | null
+  messageId: string | null,
+  howOftenHours: number | null = null,
+  automationStarted: boolean = false,
+  nextLobbyAtMs: number | null = null,
+  mode: "nuketown" | "tournament" = "nuketown"
 ): Promise<void> {
+  const isTournament = mode === "tournament";
+  const cols = isTournament
+    ? {
+        chan: "tournament_announcement_channel_id",
+        role: "tournament_announcement_role_id",
+        gates: "tournament_gates",
+        freq: "tournament_gate_frequency",
+        team: "tournament_team_limit",
+        kit: "tournament_kit_name",
+        msg: "tournament_message_id",
+        hoh: "tournament_how_often_hours",
+        ast: "tournament_automation_started",
+        next: "tournament_next_lobby_at_ms",
+      }
+    : {
+        chan: "announcement_channel_id",
+        role: "announcement_role_id",
+        gates: "gates",
+        freq: "gate_frequency",
+        team: "team_limit",
+        kit: "kit_name",
+        msg: "message_id",
+        hoh: "how_often_hours",
+        ast: "automation_started",
+        next: "next_lobby_at_ms",
+      };
   await pool.query<ResultSetHeader>(
     `
     INSERT INTO nuketown_configs
-      (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, gates, gate_frequency, team_limit, kit_name, message_id)
+      (guild_id, rust_server_id,
+       ${cols.chan}, ${cols.role}, ${cols.gates}, ${cols.freq}, ${cols.team}, ${cols.kit}, ${cols.msg},
+       ${cols.hoh}, ${cols.ast}, ${cols.next})
     VALUES
-      (:gid, :sid, :chan, :role, :gates, :freq, :tlimit, :kit, :msg)
+      (:gid, :sid, :chan, :role, :gates, :freq, :tlimit, :kit, :msg, :hoh, :ast, :nextMs)
     ON DUPLICATE KEY UPDATE
-      announcement_channel_id = VALUES(announcement_channel_id),
-      announcement_role_id = VALUES(announcement_role_id),
-      gates = VALUES(gates),
-      gate_frequency = VALUES(gate_frequency),
-      team_limit = VALUES(team_limit),
-      kit_name = VALUES(kit_name),
-      message_id = VALUES(message_id)
+      ${cols.chan} = VALUES(${cols.chan}),
+      ${cols.role} = VALUES(${cols.role}),
+      ${cols.gates} = VALUES(${cols.gates}),
+      ${cols.freq} = VALUES(${cols.freq}),
+      ${cols.team} = VALUES(${cols.team}),
+      ${cols.kit} = VALUES(${cols.kit}),
+      ${cols.msg} = VALUES(${cols.msg}),
+      ${cols.hoh} = VALUES(${cols.hoh}),
+      ${cols.ast} = VALUES(${cols.ast}),
+      ${cols.next} = VALUES(${cols.next})
   `,
     {
       gid: guildRowId,
@@ -48,6 +86,9 @@ export async function upsertNuketownConfig(
       tlimit: teamLimit,
       kit: kitName,
       msg: messageId,
+      hoh: howOftenHours,
+      ast: automationStarted ? 1 : 0,
+      nextMs: nextLobbyAtMs,
     }
   );
 }
@@ -55,25 +96,46 @@ export async function upsertNuketownConfig(
 export async function getNuketownConfig(
   pool: Pool,
   guildRowId: number,
-  rustServerId: number
+  rustServerId: number,
+  mode: "nuketown" | "tournament" = "nuketown"
 ): Promise<NuketownConfig | null> {
+  const isTournament = mode === "tournament";
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT rust_server_id as rustServerId,
-            CAST(announcement_channel_id AS CHAR) as announcementChannelId,
-            CAST(announcement_role_id AS CHAR) as announcementRoleId,
-            gates, gate_frequency as gateFrequency,
-            team_limit as teamLimit,
-            kit_name as kitName,
-            CAST(message_id AS CHAR) as messageId
+            CAST(${isTournament ? "COALESCE(tournament_announcement_channel_id, announcement_channel_id)" : "announcement_channel_id"} AS CHAR) as announcementChannelId,
+            CAST(${isTournament ? "COALESCE(tournament_announcement_role_id, announcement_role_id)" : "announcement_role_id"} AS CHAR) as announcementRoleId,
+            ${isTournament ? "COALESCE(tournament_gates, 4)" : "gates"} as gates,
+            ${isTournament ? "COALESCE(tournament_gate_frequency, gate_frequency)" : "gate_frequency"} as gateFrequency,
+            ${isTournament ? "COALESCE(tournament_team_limit, team_limit)" : "team_limit"} as teamLimit,
+            ${isTournament ? "COALESCE(tournament_kit_name, kit_name)" : "kit_name"} as kitName,
+            CAST(${isTournament ? "tournament_message_id" : "message_id"} AS CHAR) as messageId,
+            ${isTournament ? "tournament_how_often_hours" : "how_often_hours"} as howOftenHours,
+            ${isTournament ? "tournament_automation_started" : "automation_started"} as automationStarted,
+            ${isTournament ? "tournament_next_lobby_at_ms" : "next_lobby_at_ms"} as nextLobbyAtMs
      FROM nuketown_configs WHERE guild_id = :gid AND rust_server_id = :sid LIMIT 1`,
     { gid: guildRowId, sid: rustServerId }
   );
-  return (rows[0] as NuketownConfig | undefined) ?? null;
+  const r = rows[0] as any;
+  if (!r) return null;
+  return {
+    rustServerId: Number(r.rustServerId),
+    announcementChannelId: String(r.announcementChannelId ?? ""),
+    announcementRoleId: r.announcementRoleId != null ? String(r.announcementRoleId) : null,
+    gates: Number(r.gates),
+    gateFrequency: Number(r.gateFrequency),
+    teamLimit: Number(r.teamLimit),
+    kitName: String(r.kitName ?? ""),
+    messageId: r.messageId != null ? String(r.messageId) : null,
+    howOftenHours: r.howOftenHours != null ? Number(r.howOftenHours) : null,
+    automationStarted: Number(r.automationStarted) === 1,
+    nextLobbyAtMs: r.nextLobbyAtMs != null ? Number(r.nextLobbyAtMs) : null,
+  };
 }
 
 export type NuketownEventMeta = {
   id: number;
   status: "lobby" | "running" | "finished";
+  mode: "nuketown" | "tournament";
   lobbyEndsAtMs: number | null;
   teamLimit: number | null;
   kitName: string | null;
@@ -87,6 +149,7 @@ export async function getActiveNuketownEventMeta(
 ): Promise<NuketownEventMeta | null> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT id, status,
+            mode,
             CASE WHEN lobby_ends_at IS NULL THEN NULL ELSE UNIX_TIMESTAMP(lobby_ends_at) * 1000 END AS lobbyEndsAtMs,
             team_limit as teamLimit,
             kit_name as kitName,
@@ -100,6 +163,7 @@ export async function getActiveNuketownEventMeta(
     | {
         id: number;
         status: "lobby" | "running" | "finished";
+        mode?: unknown;
         lobbyEndsAtMs: number | null;
         teamLimit: number | null;
         kitName: string | null;
@@ -110,6 +174,7 @@ export async function getActiveNuketownEventMeta(
   return {
     id: Number(r.id),
     status: r.status,
+    mode: String(r.mode ?? "nuketown") === "tournament" ? "tournament" : "nuketown",
     lobbyEndsAtMs: r.lobbyEndsAtMs != null ? Number(r.lobbyEndsAtMs) : null,
     teamLimit: r.teamLimit != null ? Number(r.teamLimit) : null,
     kitName: r.kitName != null ? String(r.kitName) : null,
@@ -134,16 +199,17 @@ export async function ensureLobbyNuketownForJoin(
   pool: Pool,
   guildRowId: number,
   rustServerId: number,
-  lobbyMinutes: number
+  lobbyMinutes: number,
+  mode: "nuketown" | "tournament" = "nuketown"
 ): Promise<LobbyForJoinResult> {
   const active = await getActiveNuketownEvent(pool, guildRowId, rustServerId);
   if (active?.status === "running") return { ok: false, reason: "running" };
   if (active?.status === "lobby") return { ok: true, eventId: active.id };
 
   const [res] = await pool.query<ResultSetHeader>(
-    `INSERT INTO nuketown_events (guild_id, rust_server_id, status, lobby_ends_at)
-     VALUES (:gid, :sid, 'lobby', DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :mins MINUTE))`,
-    { gid: guildRowId, sid: rustServerId, mins: lobbyMinutes }
+    `INSERT INTO nuketown_events (guild_id, rust_server_id, status, mode, lobby_ends_at)
+     VALUES (:gid, :sid, 'lobby', :mode, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :mins MINUTE))`,
+    { gid: guildRowId, sid: rustServerId, mins: lobbyMinutes, mode }
   );
   return { ok: true, eventId: Number(res.insertId) };
 }

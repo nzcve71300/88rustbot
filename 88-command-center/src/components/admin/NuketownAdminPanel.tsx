@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 
 export function NuketownAdminPanel() {
   const { serverId } = useParams();
@@ -42,6 +43,10 @@ export function NuketownAdminPanel() {
   const [freq, setFreq] = useState("4444");
   const [teamLimit, setTeamLimit] = useState("4");
   const [kit, setKit] = useState("");
+  const [howOftenHours, setHowOftenHours] = useState("24");
+  const [mode, setMode] = useState<"nuketown" | "tournament">("nuketown");
+  const [automationNuketown, setAutomationNuketown] = useState(false);
+  const [automationTournament, setAutomationTournament] = useState(false);
 
   const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
   useEffect(() => {
@@ -61,15 +66,18 @@ export function NuketownAdminPanel() {
       const g = Number.parseInt(gates, 10);
       const f = Number.parseInt(freq, 10);
       const tl = Number.parseInt(teamLimit, 10);
+      const hoh = Number.parseInt(howOftenHours, 10);
       const res = await adminFetch(`/api/admin/server/${sid}/nuketown/setup`, {
         method: "POST",
         body: JSON.stringify({
+          mode,
           announcementChannelId: channelId,
           announcementRoleId: roleId,
           gates: g,
           gateFrequency: f,
           teamLimit: tl,
           kitName: kit.trim(),
+          howOftenHours: Number.isFinite(hoh) ? hoh : 0,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -77,6 +85,19 @@ export function NuketownAdminPanel() {
       toast.success("Nuketown lobby posted — bracket watch started.");
       void refetchEvents();
       void qc.invalidateQueries({ queryKey: ["admin-nuketown-events", sid] });
+    });
+
+  const doToggleAutomation = (which: "nuketown" | "tournament", enabled: boolean) =>
+    busy(async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/nuketown/automation`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled, mode: which }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((j as { error?: string }).error ?? "Automation toggle failed");
+      if (which === "nuketown") setAutomationNuketown(enabled);
+      else setAutomationTournament(enabled);
+      toast.success(enabled ? "Automation enabled" : "Automation disabled");
     });
 
   const doDelete = () =>
@@ -145,10 +166,22 @@ export function NuketownAdminPanel() {
         <CardHeader>
           <CardTitle className="font-rajdhani text-lg">Setup Nuketown</CardTitle>
           <CardDescription>
-            5-minute join window (or 4 clans). Gates 2–20, frequency 1000–9999, team size 1–5.
+            Choose mode, post lobby, and (optionally) enable automation. Tournament requires exactly 4 gates.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Mode</Label>
+            <Select value={mode} onValueChange={(v) => setMode(v === "tournament" ? "tournament" : "nuketown")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nuketown">Nuketown</SelectItem>
+                <SelectItem value="tournament">Nuketown Tournament</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-2 sm:col-span-2">
             <Label>Announcement channel</Label>
             <Select value={channelId} onValueChange={setChannelId}>
@@ -223,8 +256,40 @@ export function NuketownAdminPanel() {
             <Label>Kit name</Label>
             <Input value={kit} onChange={(e) => setKit(e.target.value)} placeholder="Kit given to players" />
           </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Automation: how often (hours)</Label>
+            <Input
+              inputMode="numeric"
+              placeholder="0 disables automation scheduling"
+              value={howOftenHours}
+              onChange={(e) => setHowOftenHours(e.target.value.replace(/\D/g, "").slice(0, 3))}
+            />
+          </div>
           <div className="sm:col-span-2">
             <Button onClick={() => void doSetup()}>Save &amp; post lobby</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-rajdhani text-lg">Automation</CardTitle>
+          <CardDescription>Toggle automated lobbies for each Nuketown mode.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="font-rajdhani font-semibold">Nuketown automation</p>
+              <p className="text-xs text-muted-foreground">2 clans • Bo3</p>
+            </div>
+            <Switch checked={automationNuketown} onCheckedChange={(v) => void doToggleAutomation("nuketown", Boolean(v))} />
+          </div>
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="font-rajdhani font-semibold">Nuketown Tournament automation</p>
+              <p className="text-xs text-muted-foreground">4 clans • 4 gates • Bo3</p>
+            </div>
+            <Switch checked={automationTournament} onCheckedChange={(v) => void doToggleAutomation("tournament", Boolean(v))} />
           </div>
         </CardContent>
       </Card>

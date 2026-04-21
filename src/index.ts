@@ -10,7 +10,7 @@ import { ensureSchema, pool } from "./db/pool.js";
 import { getOrCreateGuildRow } from "./db/guilds.js";
 import { ensureAdminRole } from "./guild/adminRole.js";
 import { slashCommands } from "./commands/registry.js";
-import { emoteKitBridge } from "./rcon/emoteKitBridge.js";
+import { rconConsoleFanout } from "./rcon/consoleFanout.js";
 import { clanJoinCustomIds, handleJoinClanButton, handleJoinClanModal } from "./clans/joinFlow.js";
 import { deleteExpiredInvites } from "./db/clans.js";
 import { handleLinkButton, LINK_CANCEL_ID, LINK_CONFIRM_ID } from "./linking/linkFlow.js";
@@ -30,6 +30,7 @@ import { initKothAutomationScheduler } from "./koth/automation.js";
 import { handleKothForceRestart } from "./koth/startInteractions.js";
 import { initMazeAutomationScheduler } from "./maze/automation.js";
 import { handleMazeForceRestart } from "./maze/startInteractions.js";
+import { initNuketownAutomationScheduler } from "./nuketown/automation.js";
 
 async function main() {
   await ensureSchema();
@@ -56,9 +57,9 @@ async function main() {
     }
 
     try {
-      await emoteKitBridge.start(pool);
+      await rconConsoleFanout.start(pool);
     } catch (err) {
-      console.error("Emote kit bridge failed to start:", err);
+      console.error("RCON console fanout failed to start:", err);
     }
 
     // Optional: website API (used by Netlify to fetch real servers).
@@ -67,6 +68,7 @@ async function main() {
     initDockedCargoScheduler(pool, client);
     initKothAutomationScheduler(pool, client);
     initMazeAutomationScheduler(pool, client);
+    initNuketownAutomationScheduler(pool, client);
 
     // Keep clan invite table clean (24h expiry).
     setInterval(() => {

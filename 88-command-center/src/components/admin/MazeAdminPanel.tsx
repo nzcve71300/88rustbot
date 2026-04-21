@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 
 type MazeConfigPayload = {
   announcementChannelId: string;
@@ -143,6 +144,23 @@ export function MazeAdminPanel() {
       }
       if (!res.ok) throw new Error(j.error ?? "Start failed");
       toast.success(force ? "Schedule reset — next lobby soon." : "Maze automation enabled.");
+      void refetchEvents();
+      void refetchMazeConfig();
+    });
+
+  const doToggleAutomation = (enabled: boolean) =>
+    busy(async () => {
+      const res = await adminFetch(`/api/admin/server/${sid}/maze/automation`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; needsForce?: boolean };
+      if (res.status === 409 && j.needsForce) {
+        toast.message("Already running — use “Force next lobby now” to reset the schedule.");
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Update failed");
+      toast.success(enabled ? "Automation enabled." : "Automation disabled.");
       void refetchEvents();
       void refetchMazeConfig();
     });
@@ -297,7 +315,19 @@ export function MazeAdminPanel() {
             immediately.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col sm:flex-row gap-2 flex-wrap">
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">Automation</span>
+              <span className="text-xs text-muted-foreground">Toggle scheduled lobbies on/off.</span>
+            </div>
+            <Switch
+              checked={autoOn}
+              disabled={!mazeConfigRes?.setupComplete}
+              onCheckedChange={(v) => void doToggleAutomation(v)}
+            />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
           <Button onClick={() => void doStartAutomation(false)} disabled={!mazeConfigRes?.setupComplete}>
             {autoOn ? "Already enabled" : "Enable Maze automation"}
           </Button>
@@ -309,6 +339,7 @@ export function MazeAdminPanel() {
           ) : (
             <span className="text-xs text-muted-foreground self-center">Automation is OFF</span>
           )}
+          </div>
         </CardContent>
       </Card>
     </div>

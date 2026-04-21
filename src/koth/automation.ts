@@ -167,7 +167,7 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
     serverName,
     views.map((g) => ({ gateNumber: g.gateNumber, clanName: g.clanName, members: g.members })),
     lobby.eventId,
-    null
+    (await getActiveKothEventMeta(pool, guildRowId, rustServerId))?.lobbyEndsAtMs ?? null
   );
 
   void notifyGuildWebPush(pool, guildRowId, rustServerId, {

@@ -32,7 +32,7 @@ if (mazeRespawnDebug()) {
   );
 }
 
-/** MySQL / WebSocket paths may use number or numeric string; Map keys must match emoteKitBridge `row.id`. */
+/** MySQL / WebSocket paths may use number or numeric string; Map keys use Rust server id. */
 function rustSid(id: number): number {
   return Number(id);
 }

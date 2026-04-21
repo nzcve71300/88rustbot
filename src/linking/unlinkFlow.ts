@@ -72,9 +72,15 @@ export async function beginUnlink(interaction: ChatInputCommandInteraction) {
   await interaction.reply({
     embeds: [
       baseEmbed()
-        .setTitle("Confirm unlink")
+        .setTitle("Unlink Rust name")
         .setDescription(
-          `Are you sure you want to unlink **${display}** from in-game name **${existing.ingameName}**?\n\nTheir stats for that name stay saved if they link again later.`
+          [
+            `You’re about to remove the link for **${display}**.`,
+            "",
+            `Linked name: **\`${existing.ingameName}\`**`,
+            "",
+            "They can link again later (this does not delete saved stats/history).",
+          ].join("\n")
         ),
     ],
     components: [row],
@@ -135,14 +141,22 @@ export async function handleUnlinkButton(interaction: ButtonInteraction) {
   }
 
   await interaction.update({
-    embeds: [baseEmbed().setTitle("Unlinked").setDescription("The link has been removed.")],
+    embeds: [
+      baseEmbed()
+        .setTitle("✅ Unlinked")
+        .setDescription([`Removed link for <@${p.targetUserId}>.`, "", `Previous name: **\`${p.ingameName}\`**`].join("\n")),
+    ],
     components: [],
   });
 
   const ch = interaction.channel;
   if (ch?.isTextBased() && !ch.isDMBased()) {
     await ch.send({
-      content: `**${p.ingameName}** — <@${p.targetUserId}> has been unlinked from their in-game name.`,
+      embeds: [
+        baseEmbed()
+          .setTitle("🔓 Rust profile unlinked")
+          .setDescription([`Member: <@${p.targetUserId}>`, `Previous name: **\`${p.ingameName}\`**`].join("\n")),
+      ],
     });
   }
 }

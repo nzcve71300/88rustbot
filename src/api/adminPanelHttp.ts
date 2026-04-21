@@ -32,6 +32,7 @@ import {
   ensureLobbyNuketownForJoin,
   finishNuketownEvent,
   getActiveNuketownEventMeta,
+  getNuketownConfig,
   upsertNuketownConfig,
   upsertNuketownGateCoord,
 } from "../db/nuketown.js";
@@ -46,6 +47,7 @@ import { renderMazeEmbed } from "../maze/render.js";
 import { startMazeAutomation } from "../maze/automation.js";
 import { renderNuketownEmbed } from "../nuketown/render.js";
 import { scheduleNuketownLobbyWatch } from "../nuketown/nuketownLobbyWatch.js";
+import { startNuketownAutomation } from "../nuketown/automation.js";
 import { requestStopNuketown } from "../nuketown/runner.js";
 import { requestStopKoth } from "../koth/runner.js";
 import { onev1KillTracker } from "../onev1/killTracker.js";
@@ -620,19 +622,23 @@ export async function handleAdminPanelRoutes(
   if (rest === "nuketown/setup" && method === "POST") {
     const raw = await readJsonBody(req);
     const body = raw as {
+      mode?: unknown;
       announcementChannelId?: string;
       announcementRoleId?: string;
       gates?: number;
       gateFrequency?: number;
       teamLimit?: number;
       kitName?: string;
+      howOftenHours?: number;
     };
+    const mode = String(body.mode ?? "nuketown") === "tournament" ? "tournament" : "nuketown";
     const announcementChannelId = String(body.announcementChannelId ?? "").trim();
     const announcementRoleId = String(body.announcementRoleId ?? "").trim();
     const gates = Number(body.gates);
     const gateFrequency = Number(body.gateFrequency);
     const teamLimit = Number(body.teamLimit);
     const kitName = String(body.kitName ?? "").trim();
+    const howOftenHours = body.howOftenHours != null ? Number(body.howOftenHours) : null;
 
     if (!announcementChannelId || !announcementRoleId || !kitName) {
       json(res, 400, { ok: false, error: "Channel, role, and kit name required." });
@@ -648,6 +654,14 @@ export async function handleAdminPanelRoutes(
     }
     if (!Number.isFinite(teamLimit) || teamLimit < 1 || teamLimit > 5) {
       json(res, 400, { ok: false, error: "Team limit must be 1–5." });
+      return true;
+    }
+    if (howOftenHours != null && (!Number.isFinite(howOftenHours) || howOftenHours < 0 || howOftenHours > 168)) {
+      json(res, 400, { ok: false, error: "How often must be 0–168 hours." });
+      return true;
+    }
+    if (mode === "tournament" && gates !== 4) {
+      json(res, 400, { ok: false, error: "Nuketown Tournament requires exactly 4 gates." });
       return true;
     }
 
@@ -669,7 +683,7 @@ export async function handleAdminPanelRoutes(
       return true;
     }
 
-    const lobby = await ensureLobbyNuketownForJoin(pool, guildRowId, rustServerId, 5);
+    const lobby = await ensureLobbyNuketownForJoin(pool, guildRowId, rustServerId, 5, mode);
     if (!lobby.ok) {
       json(res, 400, { ok: false, error: "Nuketown is already running on this server." });
       return true;
@@ -681,7 +695,7 @@ export async function handleAdminPanelRoutes(
 
     const sent = await channel.send({
       content: `<@&${role.id}>`,
-      embeds: [renderNuketownEmbed(srv.nickname, srv.nickname, [], lobbyEndsAtMs, teamLimit, eventNumber)],
+      embeds: [renderNuketownEmbed(srv.nickname, srv.nickname, [], lobbyEndsAtMs, teamLimit, mode, eventNumber)],
     });
 
     await upsertNuketownConfig(
@@ -694,7 +708,11 @@ export async function handleAdminPanelRoutes(
       gateFrequency,
       teamLimit,
       kitName,
-      sent.id
+      sent.id,
+      howOftenHours && howOftenHours > 0 ? howOftenHours : null,
+      false,
+      howOftenHours && howOftenHours > 0 ? Date.now() + howOftenHours * 3600_000 : null,
+      mode
     );
 
     void notifyGuildWebPush(pool, guildRowId, rustServerId, {
@@ -703,7 +721,17 @@ export async function handleAdminPanelRoutes(
       tag: `nuketown-lobby-${eventNumber}`,
     });
 
-    scheduleNuketownLobbyWatch(client, pool, guildRowId, rustServerId, channel.id, kitName, teamLimit, gateFrequency);
+    scheduleNuketownLobbyWatch(
+      client,
+      pool,
+      guildRowId,
+      rustServerId,
+      channel.id,
+      kitName,
+      teamLimit,
+      gateFrequency,
+      mode === "tournament" ? 4 : 2
+    );
 
     json(res, 200, { ok: true, messageId: sent.id });
     return true;
@@ -734,6 +762,45 @@ export async function handleAdminPanelRoutes(
     await deleteNuketownEventOnly(pool, active.id);
 
     json(res, 200, { ok: true, stoppedRunner: stopped });
+    return true;
+  }
+
+  // Toggle automation on/off (admin panel switch) — Nuketown + Tournament
+  if (rest === "nuketown/automation" && method === "PUT") {
+    const raw = await readJsonBody(req);
+    const body = raw as { enabled?: unknown; force?: unknown; mode?: unknown };
+    const enabled = Boolean(body?.enabled);
+    const force = Boolean(body?.force);
+    const mode = String(body?.mode ?? "nuketown") === "tournament" ? "tournament" : "nuketown";
+
+    if (!enabled) {
+      await pool.query(
+        `UPDATE nuketown_configs
+         SET ${mode === "tournament" ? "tournament_automation_started" : "automation_started"} = 0,
+             ${mode === "tournament" ? "tournament_next_lobby_at_ms" : "next_lobby_at_ms"} = NULL
+         WHERE guild_id = :gid AND rust_server_id = :sid`,
+        { gid: guildRowId, sid: rustServerId }
+      );
+      requestStopNuketown(rustServerId);
+      json(res, 200, { ok: true, enabled: false });
+      return true;
+    }
+
+    const cfg = await getNuketownConfig(pool, guildRowId, rustServerId, mode);
+    if (!cfg || !cfg.messageId || !cfg.howOftenHours || cfg.howOftenHours <= 0) {
+      json(res, 400, { ok: false, error: "Complete Nuketown setup first (including How often)." });
+      return true;
+    }
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
+      return true;
+    }
+    const started = await startNuketownAutomation(pool, guildRowId, rustServerId, mode);
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
+      return true;
+    }
+    json(res, 200, { ok: true, enabled: true });
     return true;
   }
 

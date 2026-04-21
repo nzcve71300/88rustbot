@@ -62,3 +62,64 @@ export async function updateLucidsByDelta(pool: Pool, discordId: string, delta: 
   }
 }
 
+/**
+ * Attempts to spend `amount` Lucids from the user.
+ * - Atomic (transaction)
+ * - Never allows negative balances
+ * - If insufficient, does not change balance and returns ok:false
+ */
+export async function trySpendLucids(
+  pool: Pool,
+  discordId: string,
+  amount: number
+): Promise<{ ok: true; newBalance: number } | { ok: false; balance: number }> {
+  const spend = Math.max(0, Math.floor(amount));
+  if (spend <= 0) {
+    const balance = await getLucidsBalance(pool, discordId);
+    return { ok: true, newBalance: balance };
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    await conn.execute(
+      `
+        INSERT INTO store_user_balances (discord_id, lucids)
+        VALUES (:discordId, 0)
+        ON DUPLICATE KEY UPDATE discord_id = discord_id
+      `,
+      { discordId }
+    );
+
+    // Lock row for update and read current balance.
+    const [rows] = await conn.execute(
+      `SELECT lucids FROM store_user_balances WHERE discord_id = :discordId LIMIT 1 FOR UPDATE`,
+      { discordId }
+    );
+    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as { lucids?: unknown }) : null;
+    const current =
+      row && typeof row.lucids === "string" ? Number.parseInt(row.lucids, 10) : Number(row?.lucids ?? 0);
+    const balance = Number.isFinite(current) ? Math.max(0, Math.floor(current)) : 0;
+
+    if (balance < spend) {
+      await conn.rollback().catch(() => {});
+      return { ok: false, balance };
+    }
+
+    const newBalance = balance - spend;
+    await conn.execute(
+      `UPDATE store_user_balances SET lucids = :lucids WHERE discord_id = :discordId`,
+      { discordId, lucids: newBalance }
+    );
+
+    await conn.commit();
+    return { ok: true, newBalance };
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+

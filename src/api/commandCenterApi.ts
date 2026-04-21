@@ -102,7 +102,7 @@ import {
   joinTargetConflictsWithExistingSlots,
   listActiveEventParticipationSlots,
 } from "../db/eventParticipation.js";
-import { getLucidsBalance } from "../db/storeLucids.js";
+import { getLucidsBalance, trySpendLucids } from "../db/storeLucids.js";
 
 type HostnameSegment = { text: string; color?: string };
 
@@ -478,6 +478,29 @@ export function startCommandCenterApi(client?: Client): void {
         }
         const lucids = await getLucidsBalance(pool, discordUserId);
         json(res, 200, { ok: true, discordUserId, lucids });
+        return;
+      }
+
+      // --- Store: Spend Lucids (atomic; fails if insufficient) ---
+      if (path === "/api/me/lucids/spend" && req.method === "POST") {
+        const discordUserId = String(req.headers["x-discord-user-id"] ?? "").trim();
+        if (!discordUserId) {
+          json(res, 401, { ok: false, error: "Missing user." });
+          return;
+        }
+        const body = (await readJsonBody(req)) as { amount?: unknown } | null;
+        const amountRaw = body?.amount;
+        const amount = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
+        if (!Number.isFinite(amount) || amount < 0) {
+          json(res, 400, { ok: false, error: "Invalid amount." });
+          return;
+        }
+        const result = await trySpendLucids(pool, discordUserId, amount);
+        if (!result.ok) {
+          json(res, 409, { ok: false, error: "Insufficient Lucids.", discordUserId, balance: result.balance });
+          return;
+        }
+        json(res, 200, { ok: true, discordUserId, newBalance: result.newBalance });
         return;
       }
 

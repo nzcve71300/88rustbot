@@ -31,66 +31,89 @@ export async function upsertNuketownConfig(
   mode: "nuketown" | "tournament" = "nuketown"
 ): Promise<void> {
   const isTournament = mode === "tournament";
-  const cols = isTournament
-    ? {
-        chan: "tournament_announcement_channel_id",
-        role: "tournament_announcement_role_id",
-        gates: "tournament_gates",
-        freq: "tournament_gate_frequency",
-        team: "tournament_team_limit",
-        kit: "tournament_kit_name",
-        msg: "tournament_message_id",
-        hoh: "tournament_how_often_hours",
-        ast: "tournament_automation_started",
-        next: "tournament_next_lobby_at_ms",
-      }
-    : {
-        chan: "announcement_channel_id",
-        role: "announcement_role_id",
-        gates: "gates",
-        freq: "gate_frequency",
-        team: "team_limit",
-        kit: "kit_name",
-        msg: "message_id",
-        hoh: "how_often_hours",
-        ast: "automation_started",
-        next: "next_lobby_at_ms",
-      };
-  await pool.query<ResultSetHeader>(
+
+  // NOTE: `announcement_channel_id` is NOT NULL in existing installs. Even when configuring
+  // tournament-only fields, the INSERT must still provide the base columns to avoid
+  // "Field 'announcement_channel_id' doesn't have a default value".
+  //
+  // For tournament updates, we intentionally only update the tournament_* columns so we
+  // don't overwrite the normal Nuketown setup if it already exists.
+  const sql = isTournament
+    ? `
+      INSERT INTO nuketown_configs (
+        guild_id, rust_server_id,
+        announcement_channel_id, announcement_role_id, gates, gate_frequency, team_limit, kit_name, message_id, how_often_hours, automation_started, next_lobby_at_ms,
+        tournament_announcement_channel_id, tournament_announcement_role_id, tournament_gates, tournament_gate_frequency, tournament_team_limit, tournament_kit_name, tournament_message_id,
+        tournament_how_often_hours, tournament_automation_started, tournament_next_lobby_at_ms
+      ) VALUES (
+        :gid, :sid,
+        :baseChan, :baseRole, :baseGates, :baseFreq, :baseTeamLimit, :baseKit, :baseMsg, :baseHoh, :baseAst, :baseNextMs,
+        :chan, :role, :gates, :freq, :tlimit, :kit, :msg,
+        :hoh, :ast, :nextMs
+      )
+      ON DUPLICATE KEY UPDATE
+        tournament_announcement_channel_id = VALUES(tournament_announcement_channel_id),
+        tournament_announcement_role_id = VALUES(tournament_announcement_role_id),
+        tournament_gates = VALUES(tournament_gates),
+        tournament_gate_frequency = VALUES(tournament_gate_frequency),
+        tournament_team_limit = VALUES(tournament_team_limit),
+        tournament_kit_name = VALUES(tournament_kit_name),
+        tournament_message_id = VALUES(tournament_message_id),
+        tournament_how_often_hours = VALUES(tournament_how_often_hours),
+        tournament_automation_started = VALUES(tournament_automation_started),
+        tournament_next_lobby_at_ms = VALUES(tournament_next_lobby_at_ms)
     `
-    INSERT INTO nuketown_configs
-      (guild_id, rust_server_id,
-       ${cols.chan}, ${cols.role}, ${cols.gates}, ${cols.freq}, ${cols.team}, ${cols.kit}, ${cols.msg},
-       ${cols.hoh}, ${cols.ast}, ${cols.next})
-    VALUES
-      (:gid, :sid, :chan, :role, :gates, :freq, :tlimit, :kit, :msg, :hoh, :ast, :nextMs)
-    ON DUPLICATE KEY UPDATE
-      ${cols.chan} = VALUES(${cols.chan}),
-      ${cols.role} = VALUES(${cols.role}),
-      ${cols.gates} = VALUES(${cols.gates}),
-      ${cols.freq} = VALUES(${cols.freq}),
-      ${cols.team} = VALUES(${cols.team}),
-      ${cols.kit} = VALUES(${cols.kit}),
-      ${cols.msg} = VALUES(${cols.msg}),
-      ${cols.hoh} = VALUES(${cols.hoh}),
-      ${cols.ast} = VALUES(${cols.ast}),
-      ${cols.next} = VALUES(${cols.next})
-  `,
-    {
-      gid: guildRowId,
-      sid: rustServerId,
-      chan: announcementChannelId,
-      role: announcementRoleId,
-      gates,
-      freq: gateFrequency,
-      tlimit: teamLimit,
-      kit: kitName,
-      msg: messageId,
-      hoh: howOftenHours,
-      ast: automationStarted ? 1 : 0,
-      nextMs: nextLobbyAtMs,
-    }
-  );
+    : `
+      INSERT INTO nuketown_configs (
+        guild_id, rust_server_id,
+        announcement_channel_id, announcement_role_id, gates, gate_frequency, team_limit, kit_name, message_id,
+        how_often_hours, automation_started, next_lobby_at_ms
+      ) VALUES (
+        :gid, :sid,
+        :chan, :role, :gates, :freq, :tlimit, :kit, :msg,
+        :hoh, :ast, :nextMs
+      )
+      ON DUPLICATE KEY UPDATE
+        announcement_channel_id = VALUES(announcement_channel_id),
+        announcement_role_id = VALUES(announcement_role_id),
+        gates = VALUES(gates),
+        gate_frequency = VALUES(gate_frequency),
+        team_limit = VALUES(team_limit),
+        kit_name = VALUES(kit_name),
+        message_id = VALUES(message_id),
+        how_often_hours = VALUES(how_often_hours),
+        automation_started = VALUES(automation_started),
+        next_lobby_at_ms = VALUES(next_lobby_at_ms)
+    `;
+
+  await pool.query<ResultSetHeader>(sql, {
+    gid: guildRowId,
+    sid: rustServerId,
+
+    // base (only used for tournament INSERT, not UPDATE)
+    baseChan: announcementChannelId,
+    baseRole: announcementRoleId,
+    baseGates: gates,
+    baseFreq: gateFrequency,
+    baseTeamLimit: teamLimit,
+    baseKit: kitName,
+    baseMsg: messageId,
+    baseHoh: howOftenHours,
+    baseAst: automationStarted ? 1 : 0,
+    baseNextMs: nextLobbyAtMs,
+
+    // active mode payload (normal OR tournament)
+    chan: announcementChannelId,
+    role: announcementRoleId,
+    gates,
+    freq: gateFrequency,
+    tlimit: teamLimit,
+    kit: kitName,
+    msg: messageId,
+    hoh: howOftenHours,
+    ast: automationStarted ? 1 : 0,
+    nextMs: nextLobbyAtMs,
+  });
 }
 
 export async function getNuketownConfig(

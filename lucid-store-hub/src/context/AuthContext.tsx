@@ -11,14 +11,38 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function normalizeUser(partial: Partial<User> | null | undefined): User | null {
+  if (!partial || !partial.id) return null;
+  const lucids =
+    typeof partial.lucids === 'number' && Number.isFinite(partial.lucids)
+      ? Math.max(0, Math.floor(partial.lucids))
+      : 0;
+  return {
+    id: partial.id,
+    username: partial.username || '',
+    email: partial.email || '',
+    avatar: partial.avatar || '',
+    lucids,
+  };
+}
+
 // Discord OAuth Configuration
-const DISCORD_CLIENT_ID = '1460597371863040112';
-const DISCORD_REDIRECT_URI = 'https://lucidclans.netlify.app/auth/callback';
-const DISCORD_AUTH_URL = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(DISCORD_REDIRECT_URI)}&response_type=code&scope=identify%20email`;
+const DEFAULT_DISCORD_CLIENT_ID = '1434906266920288319';
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const DISCORD_CLIENT_ID =
+    (import.meta as any)?.env?.VITE_DISCORD_CLIENT_ID || DEFAULT_DISCORD_CLIENT_ID;
+
+  // Build redirect URI from the current deployed site origin so it keeps working
+  // even if you change Netlify subdomains.
+  const DISCORD_REDIRECT_URI =
+    (import.meta as any)?.env?.VITE_DISCORD_REDIRECT_URI || `${window.location.origin}/auth/callback`;
+  const DISCORD_AUTH_URL = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(
+    DISCORD_REDIRECT_URI
+  )}&response_type=code&scope=identify%20email`;
 
   const generateSessionToken = () => {
     return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${Math.random().toString(36).substring(2, 15)}`;
@@ -28,10 +52,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const response = await fetch(`/.netlify/functions/get-session?token=${encodeURIComponent(token)}`);
       if (response.ok) {
-        const userData = await response.json();
-        // Update user data if it changed, but don't clear if verification fails
-        setUser(userData);
-        localStorage.setItem('lucid-clans-user', JSON.stringify(userData));
+        const fromApi = await response.json();
+        let prev: Partial<User> = {};
+        try {
+          prev = JSON.parse(localStorage.getItem('lucid-clans-user') || '{}');
+        } catch {
+          prev = {};
+        }
+        const merged = normalizeUser({
+          ...fromApi,
+          lucids: (fromApi as User).lucids ?? prev.lucids ?? 0,
+        });
+        if (merged) {
+          setUser(merged);
+          localStorage.setItem('lucid-clans-user', JSON.stringify(merged));
+        }
         return true;
       }
       // Don't clear session on verification failure - keep using localStorage
@@ -39,6 +74,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.warn('Session verification failed (using localStorage):', error);
       // Don't clear session - keep using what's in localStorage
+      return false;
+    }
+  };
+
+  const refreshLucids = async (discordId: string) => {
+    try {
+      const res = await fetch(`/.netlify/functions/get-lucids?discordId=${encodeURIComponent(discordId)}`);
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data?.ok) return false;
+      const lucidsRaw = typeof data.lucids === 'string' ? parseInt(data.lucids, 10) : Number(data.lucids ?? 0);
+      const lucids = Number.isFinite(lucidsRaw) ? Math.max(0, Math.floor(lucidsRaw)) : 0;
+      setUser((prev) => {
+        const merged = normalizeUser({ ...(prev || { id: discordId }), lucids });
+        if (merged) localStorage.setItem('lucid-clans-user', JSON.stringify(merged));
+        return merged;
+      });
+      return true;
+    } catch (e) {
+      console.warn('Lucids refresh failed:', e);
       return false;
     }
   };
@@ -56,9 +111,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     if (savedUser) {
       try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
+        const parsed = JSON.parse(savedUser);
+        const userData = normalizeUser(parsed);
+        if (userData) setUser(userData);
         setIsLoading(false);
+
+        // Always refresh Lucids from Hetzner (non-blocking).
+        if (userData?.id) {
+          refreshLucids(userData.id).catch(() => {});
+        }
         
         // Verify session with database in background (non-blocking, don't clear on failure)
         if (sessionToken) {
@@ -120,14 +181,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         const discordUser = await userResponse.json();
         
-        const userData: User = {
+        const userData = normalizeUser({
           id: discordUser.id,
           username: discordUser.username,
           email: discordUser.email || '',
-          avatar: discordUser.avatar 
+          avatar: discordUser.avatar
             ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
             : `https://cdn.discordapp.com/embed/avatars/${parseInt(discordUser.discriminator) % 5}.png`,
-        };
+          lucids: 0,
+        });
+        if (!userData) throw new Error('Invalid user payload');
 
         // Generate session token
         const sessionToken = generateSessionToken();
@@ -140,6 +203,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Set user state
         setUser(userData);
         setIsLoading(false);
+
+        // Fetch Lucids balance immediately (non-blocking).
+        refreshLucids(userData.id).catch(() => {});
         
         // Save to database (fire and forget - don't wait)
         fetch('/.netlify/functions/save-session', {

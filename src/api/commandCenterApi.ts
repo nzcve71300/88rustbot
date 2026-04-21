@@ -102,6 +102,7 @@ import {
   joinTargetConflictsWithExistingSlots,
   listActiveEventParticipationSlots,
 } from "../db/eventParticipation.js";
+import { getLucidsBalance } from "../db/storeLucids.js";
 
 type HostnameSegment = { text: string; color?: string };
 
@@ -465,6 +466,18 @@ export function startCommandCenterApi(client?: Client): void {
         }
         const messages = await listUnreadSiteInboxForUser(pool, discordUserId, 30);
         json(res, 200, { ok: true, messages });
+        return;
+      }
+
+      // --- Store: Lucids balance (read-only) ---
+      if (path === "/api/me/lucids" && req.method === "GET") {
+        const discordUserId = String(req.headers["x-discord-user-id"] ?? "").trim();
+        if (!discordUserId) {
+          json(res, 401, { ok: false, error: "Missing user." });
+          return;
+        }
+        const lucids = await getLucidsBalance(pool, discordUserId);
+        json(res, 200, { ok: true, discordUserId, lucids });
         return;
       }
 

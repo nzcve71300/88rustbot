@@ -47,6 +47,7 @@ import { startMazeAutomation } from "../maze/automation.js";
 import { renderNuketownEmbed } from "../nuketown/render.js";
 import { scheduleNuketownLobbyWatch } from "../nuketown/nuketownLobbyWatch.js";
 import { requestStopNuketown } from "../nuketown/runner.js";
+import { requestStopKoth } from "../koth/runner.js";
 import { onev1KillTracker } from "../onev1/killTracker.js";
 import { onev1RespawnWait } from "../onev1/respawnWait.js";
 import { requestStopOneV1 } from "../onev1/runner.js";
@@ -59,6 +60,7 @@ import {
   mergeDockedCargoConfig,
 } from "../db/dockedCargo.js";
 import { startDockedCargoAutomation } from "../dockedCargo/runner.js";
+import { requestStopMaze } from "../maze/runner.js";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body), "utf8");
@@ -375,6 +377,39 @@ export async function handleAdminPanelRoutes(
     return true;
   }
 
+  // Toggle automation on/off (admin panel switch).
+  if (rest === "koth/automation" && method === "PUT") {
+    const raw = await readJsonBody(req);
+    const body = raw as { enabled?: unknown; force?: unknown };
+    const enabled = Boolean(body?.enabled);
+    const force = Boolean(body?.force);
+
+    if (!enabled) {
+      await mergeKothConfig(pool, guildRowId, rustServerId, { automationStarted: false, nextLobbyAtMs: null });
+      // Best-effort: stop any in-memory runner for this server.
+      requestStopKoth(rustServerId);
+      json(res, 200, { ok: true, enabled: false });
+      return true;
+    }
+
+    const cfg = await getKothConfig(pool, guildRowId, rustServerId);
+    if (!cfg || !cfg.messageId || !isKothAutomationConfigComplete(cfg)) {
+      json(res, 400, { ok: false, error: "Complete KOTH setup first." });
+      return true;
+    }
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
+      return true;
+    }
+    const started = await startKothAutomation(pool, guildRowId, rustServerId);
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
+      return true;
+    }
+    json(res, 200, { ok: true, enabled: true });
+    return true;
+  }
+
   if (rest === "maze/events" && method === "GET") {
     const ev = await getActiveMazeEvent(pool, guildRowId, rustServerId);
     const list = ev ? [{ id: ev.id, status: ev.status }] : [];
@@ -530,6 +565,38 @@ export async function handleAdminPanelRoutes(
     }
 
     json(res, 200, { ok: true, started: true });
+    return true;
+  }
+
+  // Toggle automation on/off (admin panel switch).
+  if (rest === "maze/automation" && method === "PUT") {
+    const raw = await readJsonBody(req);
+    const body = raw as { enabled?: unknown; force?: unknown };
+    const enabled = Boolean(body?.enabled);
+    const force = Boolean(body?.force);
+
+    if (!enabled) {
+      await mergeMazeConfig(pool, guildRowId, rustServerId, { automationStarted: false, nextLobbyAtMs: null });
+      requestStopMaze(rustServerId);
+      json(res, 200, { ok: true, enabled: false });
+      return true;
+    }
+
+    const cfg = await getMazeConfig(pool, guildRowId, rustServerId);
+    if (!cfg || !cfg.messageId || !isMazeAutomationConfigComplete(cfg)) {
+      json(res, 400, { ok: false, error: "Complete Maze setup first." });
+      return true;
+    }
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
+      return true;
+    }
+    const started = await startMazeAutomation(pool, guildRowId, rustServerId);
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
+      return true;
+    }
+    json(res, 200, { ok: true, enabled: true });
     return true;
   }
 
@@ -1014,6 +1081,43 @@ export async function handleAdminPanelRoutes(
       return true;
     }
     json(res, 200, { ok: true, started: true });
+    return true;
+  }
+
+  // Toggle automation on/off (admin panel switch).
+  if (rest === "docked-cargo/automation" && method === "PUT") {
+    const raw = await readJsonBody(req);
+    const body = raw as { enabled?: unknown; force?: unknown };
+    const enabled = Boolean(body?.enabled);
+    const force = Boolean(body?.force);
+
+    if (!enabled) {
+      await mergeDockedCargoConfig(pool, guildRowId, rustServerId, { automationStarted: false });
+      json(res, 200, { ok: true, enabled: false });
+      return true;
+    }
+
+    const cfg = await getDockedCargoConfig(pool, guildRowId, rustServerId);
+    if (!cfg || !isDockedCargoConfigComplete(cfg)) {
+      json(res, 400, { ok: false, error: "Complete Docked Cargo setup first." });
+      return true;
+    }
+    if (cfg.automationStarted && !force) {
+      json(res, 409, { ok: false, error: "already_started", needsForce: true });
+      return true;
+    }
+    const started = await startDockedCargoAutomation(
+      pool,
+      guildRowId,
+      rustServerId,
+      client,
+      force ? { force: true } : undefined
+    );
+    if (!started.ok) {
+      json(res, 500, { ok: false, error: started.error ?? "Start failed" });
+      return true;
+    }
+    json(res, 200, { ok: true, enabled: true });
     return true;
   }
 

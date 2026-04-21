@@ -94,6 +94,11 @@ function formatRemainMs(untilMs: number, nowMs: number): string {
   return `${sec}s`;
 }
 
+function leaderboardClanLabel(clanName: string, clanTag: string | null): string {
+  const t = clanTag?.trim();
+  return t ? `[${t}] ${clanName}` : clanName;
+}
+
 const ServerDetail = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -1641,12 +1646,12 @@ const ServerDetail = () => {
           </CardContent>
         </Card>
 
-        {/* Leaderboard */}
+        {/* Clan leaderboard (this server only) */}
         <Card className="animate-fade-up">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 font-rajdhani">
               <Trophy className="h-4 w-4 text-primary" />
-              Leaderboard
+              Clan leaderboard
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1670,27 +1675,50 @@ const ServerDetail = () => {
                     return (
                       <div key={rank} className={`rounded-lg border ${color} p-4 text-center`}>
                         <div className="text-xs text-muted-foreground">#{rank}</div>
-                        <div className="mt-1 font-rajdhani font-bold text-foreground truncate">{row.ingameName}</div>
-                        <div className="mt-1 text-sm text-muted-foreground">{row.kills} kills</div>
+                        <div className="mt-1 font-rajdhani font-bold text-foreground truncate">
+                          {leaderboardClanLabel(row.clanName, row.clanTag)}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {row.kills}K / {row.deaths}D · KD {row.kdRatio}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground/90">
+                          Members: {row.memberCount}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-                {/* Top 12 list */}
+                {/* Top list */}
                 <div className="space-y-1">
                   {leaderboard.leaderboard.map((p, i) => (
-                    <div key={p.discordUserId} className={`flex items-center justify-between rounded-md px-3 py-2 text-sm ${i % 2 === 0 ? "bg-muted/30" : ""}`}>
-                      <div className="flex items-center gap-3">
-                        <span className="w-8 text-center text-muted-foreground">#{i + 1}</span>
-                        <span className="text-foreground font-medium">{p.ingameName}</span>
+                    <div
+                      key={p.clanId}
+                      className={`flex flex-col gap-0.5 rounded-md px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between ${i % 2 === 0 ? "bg-muted/30" : ""}`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-8 shrink-0 text-center text-muted-foreground">#{i + 1}</span>
+                        <span className="text-foreground font-medium truncate">
+                          {leaderboardClanLabel(p.clanName, p.clanTag)}
+                        </span>
                       </div>
-                      <span className="font-mono text-muted-foreground">{p.kills}</span>
+                      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 pl-11 text-xs text-muted-foreground sm:pl-0 sm:text-sm">
+                        <span>
+                          <span className="text-foreground/90">{p.kills}</span> kills
+                        </span>
+                        <span>
+                          <span className="text-foreground/90">{p.deaths}</span> deaths
+                        </span>
+                        <span className="font-mono">
+                          KD <span className="text-foreground">{p.kdRatio}</span>
+                        </span>
+                        <span className="text-muted-foreground/90">· {p.memberCount} members</span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-muted-foreground">No leaderboard data yet.</div>
+              <div className="text-sm text-muted-foreground">No clan leaderboard data yet for this server.</div>
             )}
           </CardContent>
         </Card>

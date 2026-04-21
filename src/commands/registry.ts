@@ -19,6 +19,7 @@ import { mazeSetupCommand } from "./Admin commands/maze-setup.js";
 import { mazeStartCommand } from "./Admin commands/maze-start.js";
 import { mazeDeleteCommand } from "./Admin commands/maze-delete.js";
 import { mazeKickCommand } from "./Admin commands/maze-kick.js";
+import { leaderboardCommand } from "./Admin commands/leaderboard.js";
 import { nuketownSetupCommand } from "./Admin commands/nuketown-setup.js";
 import { nuketownStartCommand } from "./Admin commands/nuketown-start.js";
 import { nuketownDeleteCommand } from "./Admin commands/nuketown-delete.js";
@@ -68,6 +69,7 @@ const slashCommandsAll: SlashCommandModule[] = [
   mazeStartCommand,
   mazeDeleteCommand,
   mazeKickCommand,
+  leaderboardCommand,
   nuketownSetupCommand,
   nuketownStartCommand,
   nuketownDeleteCommand,

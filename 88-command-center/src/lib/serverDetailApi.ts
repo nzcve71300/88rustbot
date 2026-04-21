@@ -88,7 +88,15 @@ export type ServerEventsResponse = {
 export type ServerLeaderboardResponse = {
   ok: true;
   serverId: number;
-  leaderboard: { discordUserId: string; ingameName: string; kills: number; deaths: number; kdRatio: string }[];
+  leaderboard: {
+    clanId: number;
+    clanName: string;
+    clanTag: string | null;
+    memberCount: number;
+    kills: number;
+    deaths: number;
+    kdRatio: string;
+  }[];
 };
 
 export type MyStatsResponse =

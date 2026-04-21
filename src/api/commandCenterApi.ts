@@ -96,6 +96,8 @@ import { createClanRole, createPrivateClanChannel, ensureClansCategory } from ".
 import { listRustServersForGuild } from "../db/rustServers.js";
 import { updateKothMessage } from "../koth/announce.js";
 import { updateMazeMessage } from "../maze/announce.js";
+import { getTopClansForServerLeaderboard } from "../db/clanLeaderboard.js";
+import { formatKdRatio } from "../stats/kdRatio.js";
 import {
   EVENT_JOIN_BLOCKED_MESSAGE,
   discordUserHasAnyActiveEventParticipation,
@@ -179,11 +181,6 @@ function parseOneV1WebsitePath(path: string): OneV1WebsitePath | null {
     }
   }
   return null;
-}
-
-function kdRatio(kills: number, deaths: number): string {
-  if (deaths > 0) return (kills / deaths).toFixed(2);
-  return String(kills);
 }
 
 function parseServerinfoJson(message: string): Serverinfo | null {
@@ -1391,29 +1388,16 @@ export function startCommandCenterApi(client?: Client): void {
           return;
         }
 
-        const [rows] = await pool.query(
-          `SELECT CAST(l.discord_user_id AS CHAR) AS discordUserId,
-                  l.ingame_name AS ingameName,
-                  COALESCE(k.kills, 0) AS kills,
-                  COALESCE(k.deaths, 0) AS deaths
-           FROM discord_links l
-           LEFT JOIN rust_player_kd k
-             ON k.guild_id = l.guild_id AND k.rust_server_id = :sid AND LOWER(TRIM(k.ingame_name)) = LOWER(TRIM(l.ingame_name))
-           WHERE l.guild_id = :gid
-           ORDER BY kills DESC, deaths ASC, ingameName ASC
-           LIMIT 12`,
-          { gid: guildRowId, sid: serverId }
-        );
-
-        const list = (rows as { discordUserId: string; ingameName: string; kills: number; deaths: number }[]).map(
-          (r) => ({
-            discordUserId: String(r.discordUserId),
-            ingameName: String(r.ingameName),
-            kills: Number(r.kills),
-            deaths: Number(r.deaths),
-            kdRatio: kdRatio(Number(r.kills), Number(r.deaths)),
-          })
-        );
+        const rows = await getTopClansForServerLeaderboard(pool, guildRowId, serverId, 12);
+        const list = rows.map((r) => ({
+          clanId: r.clanId,
+          clanName: r.clanName,
+          clanTag: r.clanTag,
+          memberCount: r.memberCount,
+          kills: r.kills,
+          deaths: r.deaths,
+          kdRatio: formatKdRatio(r.kills, r.deaths),
+        }));
 
         json(res, 200, { ok: true, serverId, leaderboard: list });
         return;
@@ -1450,7 +1434,7 @@ export function startCommandCenterApi(client?: Client): void {
         const r = (rows as { kills: number; deaths: number }[])[0];
         const kills = r ? Number(r.kills) : 0;
         const deaths = r ? Number(r.deaths) : 0;
-        json(res, 200, { ok: true, linked: true, ingameName: link.ingameName, kills, deaths, kdRatio: kdRatio(kills, deaths) });
+        json(res, 200, { ok: true, linked: true, ingameName: link.ingameName, kills, deaths, kdRatio: formatKdRatio(kills, deaths) });
         return;
       }
 
@@ -1846,7 +1830,7 @@ export function startCommandCenterApi(client?: Client): void {
             totalMembers: list.length,
             totalKills,
             totalDeaths,
-            kdRatio: kdRatio(totalKills, totalDeaths),
+            kdRatio: formatKdRatio(totalKills, totalDeaths),
             top3,
             leaderboard: leaderboard.slice(0, 12),
           });

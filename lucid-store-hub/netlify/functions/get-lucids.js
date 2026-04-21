@@ -27,10 +27,21 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: "Missing discordId" });
   }
 
-  const base = String(process.env.EVENT_BOT_API_BASE_URL || "").trim().replace(/\/+$/, "");
-  const key = String(process.env.EVENT_BOT_API_KEY || "").trim();
+  const baseRaw = String(process.env.EVENT_BOT_API_BASE_URL || "");
+  const keyRaw = String(process.env.EVENT_BOT_API_KEY || "");
+  const base = baseRaw.trim().replace(/\/+$/, "");
+  const key = keyRaw.trim();
   if (!base || !key) {
-    return json(503, { ok: false, error: "Lucids API not configured" });
+    return json(503, {
+      ok: false,
+      error: "Lucids API not configured",
+      debug: {
+        baseConfigured: Boolean(base),
+        keyConfigured: Boolean(key),
+        baseLen: baseRaw.length,
+        keyLen: keyRaw.length,
+      },
+    });
   }
 
   try {
@@ -54,6 +65,19 @@ exports.handler = async (event) => {
       return json(res.status || 502, {
         ok: false,
         error: "Upstream error",
+        debug: {
+          baseHost: (() => {
+            try {
+              return new URL(base).host;
+            } catch {
+              return null;
+            }
+          })(),
+          keyLen: keyRaw.length,
+          keyTrimmedLen: key.length,
+          discordId,
+          upstreamStatus: res.status,
+        },
         upstream: data,
       });
     }

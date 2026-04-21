@@ -646,6 +646,16 @@ export async function ensureSchema(): Promise<void> {
         CONSTRAINT fk_server_metrics_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Store hub token balance (Lucids). Shared between the Discord bot + website.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS store_user_balances (
+        discord_id BIGINT UNSIGNED NOT NULL,
+        lucids BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (discord_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
   } finally {
     conn.release();
   }

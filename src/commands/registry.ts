@@ -34,6 +34,7 @@ import { onev1DeleteCommand } from "./Admin commands/onev1-delete.js";
 import { dockedCargoSetupCommand } from "./Admin commands/docked-cargo-setup.js";
 import { dockedCargoStartCommand } from "./Admin commands/docked-cargo-start.js";
 import { onev1Command } from "./Player Commands/onev1.js";
+import { giveTokensCommand } from "./Admin commands/give-tokens.js";
 
 export type SlashCommandModule = {
   data: { name: string; toJSON: () => unknown };
@@ -74,6 +75,7 @@ const slashCommandsAll: SlashCommandModule[] = [
   dockedCargoStartCommand,
   setCommand,
   unlinkCommand,
+  giveTokensCommand,
 
   // player
   clanCreateCommand,

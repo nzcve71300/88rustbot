@@ -31,6 +31,7 @@ import { quoteForRconArg } from "../rcon/quote.js";
 import { kothKillTracker } from "./killTracker.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import { rewardDiscordUsersLucids } from "../rewards/eventRewards.js";
+import { createKothGateZones, deleteKothGateZones } from "./kothZones.js";
 
 function parseMsEnv(name: string, fallback: number): number {
   const v = process.env[name]?.trim();
@@ -319,12 +320,19 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
   await kothKillTracker.refreshRoster(pool, rustServerId, guildRowId, eventId);
 
   try {
+    let activeZoneNames: string[] = [];
     for (let wave = 1; wave <= waves; wave++) {
       if (abort.signal.aborted) throw new Error("KOTH aborted");
       if (wave > 1) {
         await sleepAbortable(WAVE_GAP_MS, abort.signal);
         kothKillTracker.setWave(rustServerId, wave);
         await kothKillTracker.refreshRoster(pool, rustServerId, guildRowId, eventId);
+      }
+
+      // Delete prior wave zones before kits/teleports (requested: delete when round ends, before next teleport).
+      if (activeZoneNames.length > 0) {
+        await deleteKothGateZones({ rustServerId, host, port, password, zoneNames: activeZoneNames });
+        activeZoneNames = [];
       }
 
       // Stamp wave start in DB so the website phase timers (door delay → wave) match the runner.
@@ -355,12 +363,26 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
 
       await runFakeBroadcasterSequence(rustServerId, host, port, password, gateFrequency, gate1Xyz, abort.signal);
 
+      // Gates close when the fake broadcaster is removed; spawn a clan-named zone at each assigned gate with coords.
+      try {
+        activeZoneNames = await createKothGateZones({ pool, guildRowId, rustServerId, eventId, host, port, password });
+      } catch (e) {
+        console.error("[koth] create gate zones failed:", e);
+        activeZoneNames = [];
+      }
+
       await sleepWaveDurationOrEarlyEnd(rustServerId, durationPerWaveMin * 60_000, abort.signal, wave, waves);
 
       await kothKillTracker.drain(rustServerId);
       const rawKillRows = await countKothKillsForWave(pool, eventId, wave);
       console.log(`[koth] wave ${wave}/${waves} summary: ${rawKillRows} row(s) in koth_kills for event ${eventId}`);
       await postWaveEmbed(client, pool, guildRowId, announcementChannelId, eventId, wave, waves);
+    }
+
+    // Cleanup zones after final wave as well.
+    if (activeZoneNames.length > 0) {
+      await deleteKothGateZones({ rustServerId, host, port, password, zoneNames: activeZoneNames });
+      activeZoneNames = [];
     }
 
     const doneCh = await client.channels.fetch(announcementChannelId);

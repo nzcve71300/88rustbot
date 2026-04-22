@@ -18,6 +18,7 @@ import {
   getKothEventTopKillerWithLink,
   type KothKillLogRow,
   listKothKillLogForWave,
+  listKothEventClanDiscordUserIds,
   listKothParticipantsWithGatesAndClan,
   listWaveKillsDetailed,
   setKothWave,
@@ -29,7 +30,7 @@ import { runWebRconCommand } from "../rcon/webrcon.js";
 import { quoteForRconArg } from "../rcon/quote.js";
 import { kothKillTracker } from "./killTracker.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
-import { rewardClanLucids } from "../rewards/eventRewards.js";
+import { rewardDiscordUsersLucids } from "../rewards/eventRewards.js";
 
 function parseMsEnv(name: string, fallback: number): number {
   const v = process.env[name]?.trim();
@@ -375,7 +376,8 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
           const totals = await sumKillsByClanForEvent(pool, eventId);
           const winner = totals[0];
           if (winner && winner.total > 0) {
-            await rewardClanLucids(pool, winner.clanId, 50);
+            const ids = await listKothEventClanDiscordUserIds(pool, eventId, winner.clanId);
+            await rewardDiscordUsersLucids(pool, ids, 50);
             rewardLine = `The clan **${winner.clanName}** got rewarded with **50 Lucids**.`;
           }
         }

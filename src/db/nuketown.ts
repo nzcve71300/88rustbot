@@ -427,6 +427,22 @@ export async function listNuketownParticipants(
   }));
 }
 
+/** Discord user IDs for members of a clan who joined this Nuketown event. */
+export async function listNuketownEventClanDiscordUserIds(
+  pool: Pool,
+  eventId: number,
+  clanId: number
+): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT CAST(discord_user_id AS CHAR) AS uid
+     FROM nuketown_event_members
+     WHERE event_id = :eid AND clan_id = :cid
+     ORDER BY joined_at ASC`,
+    { eid: eventId, cid: clanId }
+  );
+  return (rows as { uid: string }[]).map((r) => String(r.uid));
+}
+
 export async function upsertNuketownGateCoord(
   pool: Pool,
   guildRowId: number,

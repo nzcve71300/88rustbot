@@ -5,11 +5,12 @@ import { poweredByFooterBlock, truncateEmbedDescription } from "../embeds/eventR
 import { runWebRconCommand } from "../rcon/webrcon.js";
 import { quoteForRconArg } from "../rcon/quote.js";
 import { nuketownKillTracker } from "./killTracker.js";
-import { rewardClanLucids } from "../rewards/eventRewards.js";
+import { rewardDiscordUsersLucids } from "../rewards/eventRewards.js";
 import {
   deleteNuketownEventAndClearConfig,
   finishNuketownEvent,
   getNuketownGateCoord,
+  listNuketownEventClanDiscordUserIds,
   listNuketownParticipants,
   listNuketownTeams,
   updateNuketownBracketJson,
@@ -397,7 +398,8 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
     let rewardLine = "";
     try {
       if (eligibleForRewards && winnerClanId > 0) {
-        await rewardClanLucids(pool, winnerClanId, lucidsReward);
+        const ids = await listNuketownEventClanDiscordUserIds(pool, eventId, winnerClanId);
+        await rewardDiscordUsersLucids(pool, ids, lucidsReward);
         rewardLine = `The clan **${winnerName}** got rewarded with **${lucidsReward} Lucids**.`;
       }
     } catch (e) {

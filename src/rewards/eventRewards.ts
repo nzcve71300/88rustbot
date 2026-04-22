@@ -1,13 +1,15 @@
 import type { Pool } from "mysql2/promise";
 import { updateLucidsByDelta } from "../db/storeLucids.js";
-import { listClanMemberDiscordUserIds } from "../db/clans.js";
 
-export async function rewardClanLucids(pool: Pool, clanId: number, amount: number): Promise<{ members: number }> {
+export async function rewardDiscordUsersLucids(
+  pool: Pool,
+  discordUserIds: string[],
+  amount: number
+): Promise<{ members: number }> {
   const amt = Math.max(0, Math.floor(amount));
   if (amt <= 0) return { members: 0 };
-  const ids = await listClanMemberDiscordUserIds(pool, clanId);
   await Promise.all(
-    ids.map(async (id) => {
+    discordUserIds.map(async (id) => {
       try {
         await updateLucidsByDelta(pool, id, amt);
       } catch (e) {
@@ -15,7 +17,7 @@ export async function rewardClanLucids(pool: Pool, clanId: number, amount: numbe
       }
     })
   );
-  return { members: ids.length };
+  return { members: discordUserIds.length };
 }
 
 export async function rewardPlayerLucids(pool: Pool, discordUserId: string, amount: number): Promise<void> {

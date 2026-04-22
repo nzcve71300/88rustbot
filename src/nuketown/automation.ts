@@ -188,7 +188,9 @@ async function processLobbyPhase(pool: Pool, client: Client, guildRowId: number,
   const meta2 = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);
   if (!meta2 || meta2.status !== "lobby") return;
 
-  if (meta2.lobbyEndsAtMs != null && now < meta2.lobbyEndsAtMs && teams.length < maxClans) return;
+  // Wait until the lobby timer expires. The only early-start path is setting `lobbyEndsAt` to now
+  // once all teams reach the configured team limit.
+  if (meta2.lobbyEndsAtMs != null && now < meta2.lobbyEndsAtMs) return;
 
   if (teams.length < 2) {
     // Cancel: not enough clans.

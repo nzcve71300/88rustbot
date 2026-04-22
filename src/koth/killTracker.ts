@@ -92,6 +92,10 @@ class KothKillTracker {
   private byServer = new Map<number, Active>();
   /** Serialize async kill handling per server so wave summaries don't read DB before writes land. */
   private flushByServer = new Map<number, Promise<void>>();
+  /** Deduplicate kill lines that arrive twice from WebRCON (same kill echoed in multiple formats). */
+  private recentKillKeysByServer = new Map<number, Map<string, number>>();
+  private static readonly DEDUPE_WINDOW_MS = 2500;
+  private static readonly DEDUPE_MAX_KEYS = 200;
 
   register(rustServerId: number, ctx: Omit<Active, "roster" | "aliveByClanId" | "multiClanWave" | "resolveLastClan" | "lastClanPromise">): void {
     this.byServer.set(rustServerId, {
@@ -103,6 +107,7 @@ class KothKillTracker {
       lastClanPromise: null,
     });
     this.flushByServer.set(rustServerId, Promise.resolve());
+    this.recentKillKeysByServer.set(rustServerId, new Map());
   }
 
   /** Call right after register (and after each wave if roster can change). */
@@ -174,6 +179,7 @@ class KothKillTracker {
   unregister(rustServerId: number): void {
     this.byServer.delete(rustServerId);
     this.flushByServer.delete(rustServerId);
+    this.recentKillKeysByServer.delete(rustServerId);
   }
 
   /** Await before posting wave summary so all pending kill increments are committed. */
@@ -241,6 +247,32 @@ class KothKillTracker {
       }
 
       const isTeamKill = victimRow != null && victimRow.clanId === killerRow.clanId;
+
+      // WebRCON can emit the same kill more than once (e.g. HTML killfeed + plain text),
+      // causing double increments. Dedupe by normalized killer/victim + event + wave.
+      const dedupeVictim = victimRow?.discordUserId ?? victimName;
+      const dedupeKey = `${a.eventId}:${a.wave}:${killerRow.discordUserId}:${String(dedupeVictim)}`;
+      const now = Date.now();
+      const recent = this.recentKillKeysByServer.get(rustServerId);
+      if (recent) {
+        const last = recent.get(dedupeKey);
+        if (last != null && now - last < KothKillTracker.DEDUPE_WINDOW_MS) {
+          if (process.env.DEBUG_KOTH === "1") {
+            console.log(`[koth kills] deduped duplicate kill line key=${dedupeKey}`);
+          }
+          return;
+        }
+        recent.set(dedupeKey, now);
+        if (recent.size > KothKillTracker.DEDUPE_MAX_KEYS) {
+          // Prune oldest entries (small map; O(n) is fine).
+          const entries = [...recent.entries()].sort((x, y) => x[1] - y[1]);
+          for (let i = 0; i < Math.ceil(KothKillTracker.DEDUPE_MAX_KEYS * 0.25); i++) {
+            const k = entries[i]?.[0];
+            if (k) recent.delete(k);
+          }
+        }
+      }
+
       if (!isTeamKill) {
         await incrementKothKill(pool, a.eventId, a.wave, killerRow.clanId, killerRow.discordUserId);
         try {

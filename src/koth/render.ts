@@ -14,9 +14,10 @@ export function renderKothEmbed(
   countdownEndsAtMs?: number | null
 ) {
   const eventNo = eventNumber != null ? ` #${eventNumber}` : "";
-  const countdown =
-    countdownEndsAtMs != null ? `<t:${Math.floor(countdownEndsAtMs / 1000)}:R>` : "";
-  const startsLine = countdown ? `Wave ends **${countdown}**` : "";
+  const countdownUnix = countdownEndsAtMs != null ? Math.floor(countdownEndsAtMs / 1000) : null;
+  const rel = countdownUnix != null ? `<t:${countdownUnix}:R>` : "";
+  const at = countdownUnix != null ? `<t:${countdownUnix}:t>` : "";
+  const timerLine = countdownUnix != null ? `Lobby closes **${rel}** (at ${at})` : "";
 
   const lines: string[] = [];
 
@@ -40,8 +41,8 @@ export function renderKothEmbed(
       [
         "**KOTH Event is starting soon!**",
         "",
-        "**Event Starting**",
-        startsLine,
+        "**Lobby timer**",
+        timerLine,
         "",
         `Use **/koth-join** with server **${serverNickname}** to participate.`,
         "",

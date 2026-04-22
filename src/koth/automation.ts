@@ -25,7 +25,7 @@ import { notifyGuildWebPush } from "../push/webPushNotify.js";
 import { updateKothMessage } from "./announce.js";
 import { parseGateCoordTriple, runKothWaves } from "./runner.js";
 
-const LOBBY_MAX_MINUTES = 15;
+const LOBBY_MAX_MINUTES = 5;
 const MIN_GATE_FILL_RATIO = 0.5;
 
 const tickLocks = new Set<number>();

@@ -26,6 +26,16 @@ function maxClansForMode(mode: "nuketown" | "tournament"): number {
   return mode === "tournament" ? 4 : 2;
 }
 
+async function areLobbyTeamsFull(pool: Pool, guildRowId: number, eventId: number, teamLimit: number): Promise<boolean> {
+  const lim = Math.max(1, Math.floor(teamLimit));
+  const teams = await listNuketownTeams(pool, eventId);
+  if (teams.length < 2) return false;
+  const participants = await listNuketownParticipants(pool, guildRowId, eventId);
+  const countByClan = new Map<number, number>();
+  for (const p of participants) countByClan.set(p.clanId, (countByClan.get(p.clanId) ?? 0) + 1);
+  return teams.every((t) => (countByClan.get(t.clanId) ?? 0) >= lim);
+}
+
 export async function startNuketownAutomation(
   pool: Pool,
   guildRowId: number,
@@ -168,8 +178,11 @@ async function processLobbyPhase(pool: Pool, client: Client, guildRowId: number,
   const now = Date.now();
   const maxClans = maxClansForMode(mode);
 
+  // Only end the lobby early when the teams are actually full (respect team limit),
+  // otherwise the 2nd clan joining would instantly start the match.
   if (teams.length >= maxClans) {
-    await setNuketownLobbyEndsAtNow(pool, meta.id);
+    const full = await areLobbyTeamsFull(pool, guildRowId, meta.id, cfg.teamLimit);
+    if (full) await setNuketownLobbyEndsAtNow(pool, meta.id);
   }
 
   const meta2 = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);

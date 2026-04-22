@@ -38,9 +38,17 @@ export function scheduleNuketownLobbyWatch(
         if (!m || m.status !== "lobby") return;
         const teams = await listNuketownTeams(pool, m.id);
         const now = Date.now();
+        // Only start early when all teams are filled to the configured team size.
         if (teams.length >= Math.max(2, Math.min(4, maxClans))) {
-          await setNuketownLobbyEndsAtNow(pool, m.id);
-          break;
+          const lim = Math.max(1, Math.floor(teamLimit));
+          const participants = await listNuketownParticipants(pool, guildRowId, m.id);
+          const countByClan = new Map<number, number>();
+          for (const p of participants) countByClan.set(p.clanId, (countByClan.get(p.clanId) ?? 0) + 1);
+          const allTeamsFull = teams.every((t) => (countByClan.get(t.clanId) ?? 0) >= lim);
+          if (allTeamsFull) {
+            await setNuketownLobbyEndsAtNow(pool, m.id);
+            break;
+          }
         }
         if (m.lobbyEndsAtMs != null && now >= m.lobbyEndsAtMs) break;
         await new Promise((r) => setTimeout(r, 2000));

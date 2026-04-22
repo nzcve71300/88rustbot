@@ -488,12 +488,18 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
     const challengerWon = scoreA > scoreB;
     const winnerId = challengerWon ? challengerDiscordId : opponentDiscordId;
     const loserId = challengerWon ? opponentDiscordId : challengerDiscordId;
-    const matchWinnerIngame = challengerWon ? challengerIngame : opponentIngame;
+    const round3Winner = roundWinners[2] ?? null;
+    const round3WinnerIngame =
+      round3Winner === "challenger" ? challengerIngame : round3Winner === "opponent" ? opponentIngame : null;
 
     /** Run before Discord/DB so a failed embed or snapshot cannot skip the end-of-match kill. */
-    const endKillOk = await killPlayerWithFallbacks(rustServerId, host, port, password, matchWinnerIngame);
+    const endKillOk = round3WinnerIngame
+      ? await killPlayerWithFallbacks(rustServerId, host, port, password, round3WinnerIngame)
+      : false;
     if (!endKillOk) {
-      console.error(`[1v1] end-match kill failed for winner ${matchWinnerIngame} (check RCON / in-game name)`);
+      console.error(
+        `[1v1] end-match kill failed for round 3 winner ${round3WinnerIngame ?? "(unknown)"} (check RCON / in-game name)`
+      );
     }
 
     try {

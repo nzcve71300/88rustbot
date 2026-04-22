@@ -511,19 +511,22 @@ class MazeKillTracker {
 
       if (killerRow) {
         if (!victimRow && !victimOptional()) return;
-        await incrementMazeKill(pool, a.eventId, killerRow.clanId, killerRow.discordUserId);
-        try {
-          await insertMazeKillLog(
-            pool,
-            a.guildRowId,
-            a.eventId,
-            killerRow.discordUserId,
-            victimRow?.discordUserId ?? null,
-            killerRow.ingameName,
-            victimRow?.ingameName ?? victimName
-          );
-        } catch (e) {
-          console.error("[maze kills] kill log insert failed:", e);
+        const isTeamKill = victimRow != null && victimRow.clanId === killerRow.clanId;
+        if (!isTeamKill) {
+          await incrementMazeKill(pool, a.eventId, killerRow.clanId, killerRow.discordUserId);
+          try {
+            await insertMazeKillLog(
+              pool,
+              a.guildRowId,
+              a.eventId,
+              killerRow.discordUserId,
+              victimRow?.discordUserId ?? null,
+              killerRow.ingameName,
+              victimRow?.ingameName ?? victimName
+            );
+          } catch (e) {
+            console.error("[maze kills] kill log insert failed:", e);
+          }
         }
       }
 

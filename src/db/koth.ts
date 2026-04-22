@@ -691,6 +691,28 @@ export async function sumKillsByClanForWave(
   }));
 }
 
+export type ClanEventTotal = { clanId: number; clanName: string; total: number };
+
+/** Total KOTH kills per clan across the whole event. */
+export async function sumKillsByClanForEvent(pool: Pool, eventId: number): Promise<ClanEventTotal[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT k.clan_id AS clanId,
+            COALESCE(MAX(c.name), CONCAT('Clan ', k.clan_id)) AS clanName,
+            SUM(k.kills) AS total
+     FROM koth_kills k
+     LEFT JOIN clans c ON c.id = k.clan_id
+     WHERE k.event_id = :eid
+     GROUP BY k.clan_id
+     ORDER BY total DESC, clanName ASC`,
+    { eid: eventId }
+  );
+  return (rows as { clanId: number; clanName: string; total: number }[]).map((r) => ({
+    clanId: Number(r.clanId),
+    clanName: String(r.clanName),
+    total: Number(r.total),
+  }));
+}
+
 /** Raw row count for debugging (ignores clan JOIN). */
 export async function countKothKillsForWave(
   pool: Pool,

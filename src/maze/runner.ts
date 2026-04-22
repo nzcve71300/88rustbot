@@ -22,6 +22,7 @@ import type { RowDataPacket } from "mysql2/promise";
 import { mazeKillTracker } from "./killTracker.js";
 import { runMazeInitialSpawnWithZones } from "./mazeZones.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
+import { rewardPlayerLucids } from "../rewards/eventRewards.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -142,6 +143,7 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
 
   try {
     const participants = await listMazeParticipantsForTeleport(pool, guildRowId, eventId);
+    const eligibleForRewards = participants.length / Math.max(1, spawnPointCount) >= 0.6;
 
     /** Register + roster before initial teleports so console kills / `has entered the game` match this event (and MySQL `id` vs JS number stays consistent via killTracker normalization). */
     mazeKillTracker.register(rustServerId, {
@@ -217,12 +219,32 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
     const cfgAfter = await getMazeConfig(pool, guildRowId, rustServerId);
     const doneCh = await client.channels.fetch(announcementChannelId);
     if (doneCh && doneCh instanceof TextChannel) {
+      let rewardLine = "";
+      try {
+        if (eligibleForRewards) {
+          const players = await listMazeKillsDetailedForEvent(pool, eventId);
+          const winner = players[0];
+          if (winner && winner.kills > 0) {
+            await rewardPlayerLucids(pool, winner.discordUserId, 15);
+            rewardLine = `The clan member **<@${winner.discordUserId}>** got rewarded with **15 Lucids**.`;
+          }
+        }
+      } catch (e) {
+        console.error("[maze rewards] failed:", e);
+      }
       const nextLine =
         cfgAfter?.automationStarted && cfgAfter.howOftenHours && cfgAfter.howOftenHours > 0
           ? "The next **automatic lobby** is scheduled per your **How often** interval."
           : "Run **/maze-setup** again before the next manual event. **Maze spawn-point** coordinates from **/manage-positions** are kept.";
       const clearedDesc = truncateEmbedDescription(
-        [`**${serverNickname}** — the Maze event is complete.`, "", nextLine, "", poweredByFooterBlock()].join("\n")
+        [
+          `**${serverNickname}** — the Maze event is complete.`,
+          "",
+          ...(rewardLine ? [rewardLine, ""] : []),
+          nextLine,
+          "",
+          poweredByFooterBlock(),
+        ].join("\n")
       );
       await doneCh.send({
         embeds: [

@@ -9,9 +9,11 @@ import {
 } from "../embeds/eventResults.js";
 import {
   countKothKillsForWave,
+  countAssignedGatesForEvent,
   finalizeKothAfterSuccessfulRun,
   finishKothEvent,
   getGateCoord,
+  getKothConfig,
   getKothDoorDelayMs,
   getKothEventTopKillerWithLink,
   type KothKillLogRow,
@@ -19,6 +21,7 @@ import {
   listKothParticipantsWithGatesAndClan,
   listWaveKillsDetailed,
   setKothWave,
+  sumKillsByClanForEvent,
   sumKillsByClanForWave,
 } from "../db/koth.js";
 import { buildKothEndedSay, KOTH_RCON_START, runSayRcon } from "../rcon/eventBroadcasts.js";
@@ -26,6 +29,7 @@ import { runWebRconCommand } from "../rcon/webrcon.js";
 import { quoteForRconArg } from "../rcon/quote.js";
 import { kothKillTracker } from "./killTracker.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
+import { rewardClanLucids } from "../rewards/eventRewards.js";
 
 function parseMsEnv(name: string, fallback: number): number {
   const v = process.env[name]?.trim();
@@ -360,10 +364,29 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
 
     const doneCh = await client.channels.fetch(announcementChannelId);
     if (doneCh && doneCh instanceof TextChannel) {
+      let rewardLine = "";
+      try {
+        const cfg = await getKothConfig(pool, guildRowId, rustServerId);
+        const gatesTotal = cfg?.gates ?? null;
+        const assigned = gatesTotal != null ? await countAssignedGatesForEvent(pool, eventId) : 0;
+        const eligible =
+          gatesTotal != null && gatesTotal > 0 ? assigned / Math.max(1, gatesTotal) >= 0.6 : false;
+        if (eligible) {
+          const totals = await sumKillsByClanForEvent(pool, eventId);
+          const winner = totals[0];
+          if (winner && winner.total > 0) {
+            await rewardClanLucids(pool, winner.clanId, 50);
+            rewardLine = `The clan **${winner.clanName}** got rewarded with **50 Lucids**.`;
+          }
+        }
+      } catch (e) {
+        console.error("[koth rewards] failed:", e);
+      }
       const kothDoneDesc = truncateEmbedDescription(
         [
           `**${serverNickname}** — all **${waves}** wave(s) complete.`,
           "",
+          ...(rewardLine ? [rewardLine, ""] : []),
           "Run **/koth-setup** again before the next event (configuration was cleared; **KOTH Gate** positions from **/manage-positions** are kept).",
           "",
           poweredByFooterBlock(),

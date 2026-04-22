@@ -131,19 +131,24 @@ export class NuketownKillTracker {
     if (!parsed) return;
     const prev = this.flushByServer.get(rustServerId) ?? Promise.resolve();
     const next = prev
-      .then(() => this.handleKill(rustServerId, parsed.victim))
+      .then(() => this.handleKill(rustServerId, parsed))
       .catch((err) => console.error("[nuketown kills] flush chain:", err));
     this.flushByServer.set(rustServerId, next);
   }
 
-  private async handleKill(rustServerId: number, victimRaw: string): Promise<void> {
+  private async handleKill(rustServerId: number, parsed: { victim: string; killer: string }): Promise<void> {
     const a = this.byServer.get(rustServerId);
     if (!a || a.abortSignal.aborted) return;
     if (!a.roster?.length) return;
 
-    const victimName = stripKillLogNoise(victimRaw);
+    const victimName = stripKillLogNoise(parsed.victim);
     const victimRow = matchRosterConsole(victimName, a.roster);
     if (!victimRow) return;
+
+    const killerName = stripKillLogNoise(parsed.killer);
+    const killerRow = matchRosterConsole(killerName, a.roster);
+    const isTeamKill = killerRow != null && Number(killerRow.slot) === Number(victimRow.slot);
+    if (isTeamKill) return;
 
     const slot = Number(victimRow.slot);
     const set = a.aliveBySlot.get(slot);

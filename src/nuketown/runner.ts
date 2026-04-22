@@ -5,6 +5,7 @@ import { poweredByFooterBlock, truncateEmbedDescription } from "../embeds/eventR
 import { runWebRconCommand } from "../rcon/webrcon.js";
 import { quoteForRconArg } from "../rcon/quote.js";
 import { nuketownKillTracker } from "./killTracker.js";
+import { rewardClanLucids } from "../rewards/eventRewards.js";
 import {
   deleteNuketownEventAndClearConfig,
   finishNuketownEvent,
@@ -380,6 +381,7 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
     const isTournament = slots.length >= 3;
     const winnerMeta = teamsMeta.find((t: any) => t.slot === champ) ?? { clanTag: "", clanName: `Team ${champ}` };
     const winnerName = fmtClanLabel(winnerMeta);
+    const winnerClanId = Number((winnerMeta as any).clanId ?? 0);
 
     const loserSlot = champ === finalistA ? finalistB : finalistA;
     const loserMeta = teamsMeta.find((t: any) => t.slot === loserSlot) ?? { clanTag: "", clanName: `Team ${loserSlot}` };
@@ -390,6 +392,17 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
 
     const pointsRaw = Number.parseInt(process.env.NUKETOWN_EVENT_POINTS ?? "", 10);
     const pointsText = Number.isFinite(pointsRaw) ? String(pointsRaw) : "(x)";
+    const lucidsReward = isTournament ? 25 : 15;
+    const eligibleForRewards = slots.length / (isTournament ? 4 : 2) >= 0.6;
+    let rewardLine = "";
+    try {
+      if (eligibleForRewards && winnerClanId > 0) {
+        await rewardClanLucids(pool, winnerClanId, lucidsReward);
+        rewardLine = `The clan **${winnerName}** got rewarded with **${lucidsReward} Lucids**.`;
+      }
+    } catch (e) {
+      console.error("[nuketown rewards] failed:", e);
+    }
 
     const title = isTournament
       ? `🏆 Nuketown Team Tournament #${eventId} - Final Complete`
@@ -441,6 +454,7 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
       "**Champion**",
       `🥇 ${winnerName}`,
       "",
+      ...(rewardLine ? [rewardLine, ""] : []),
       `**Reward:** Team gets **${pointsText}** Event Points 🤑`,
       `**Event:** #${eventId}`,
       "",

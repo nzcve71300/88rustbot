@@ -240,20 +240,23 @@ class KothKillTracker {
         }
       }
 
-      await incrementKothKill(pool, a.eventId, a.wave, killerRow.clanId, killerRow.discordUserId);
-      try {
-        await insertKothKillLog(
-          pool,
-          a.guildRowId,
-          a.eventId,
-          a.wave,
-          killerRow.discordUserId,
-          victimRow?.discordUserId ?? null,
-          killerRow.ingameName,
-          victimRow?.ingameName ?? victimName
-        );
-      } catch (logErr) {
-        console.error("[koth kills] failed to save kill log row:", logErr);
+      const isTeamKill = victimRow != null && victimRow.clanId === killerRow.clanId;
+      if (!isTeamKill) {
+        await incrementKothKill(pool, a.eventId, a.wave, killerRow.clanId, killerRow.discordUserId);
+        try {
+          await insertKothKillLog(
+            pool,
+            a.guildRowId,
+            a.eventId,
+            a.wave,
+            killerRow.discordUserId,
+            victimRow?.discordUserId ?? null,
+            killerRow.ingameName,
+            victimRow?.ingameName ?? victimName
+          );
+        } catch (logErr) {
+          console.error("[koth kills] failed to save kill log row:", logErr);
+        }
       }
 
       if (victimRow) {
@@ -266,7 +269,9 @@ class KothKillTracker {
 
       if (process.env.DEBUG_KOTH === "1") {
         const vLabel = victimRow?.ingameName ?? victimName;
-        console.log(`[koth kills] +1 killer=${killerRow.ingameName} victim=${vLabel} wave ${a.wave} event ${a.eventId}`);
+        console.log(
+          `[koth kills] ${isTeamKill ? "teamkill (ignored)" : "+1"} killer=${killerRow.ingameName} victim=${vLabel} wave ${a.wave} event ${a.eventId}`
+        );
       }
     } catch (err) {
       console.error("[koth kills] increment failed:", err);

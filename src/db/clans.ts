@@ -93,6 +93,18 @@ export async function countClanMembers(pool: Pool, clanId: number): Promise<numb
   return Number((rows[0] as { c: number }).c);
 }
 
+/** All Discord user IDs in a clan (as strings). */
+export async function listClanMemberDiscordUserIds(pool: Pool, clanId: number): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT CAST(discord_user_id AS CHAR) AS uid
+     FROM clan_members
+     WHERE clan_id = :cid
+     ORDER BY joined_at ASC`,
+    { cid: clanId }
+  );
+  return (rows as { uid: string }[]).map((r) => String(r.uid));
+}
+
 export async function addClanMember(
   pool: Pool,
   clanId: number,

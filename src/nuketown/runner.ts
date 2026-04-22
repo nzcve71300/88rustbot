@@ -158,6 +158,11 @@ function fmtClanLabel(t: { clanTag: string; clanName: string }): string {
 export function requestStopNuketown(rustServerId: number): boolean {
   const r = running.get(rustServerId);
   if (!r) return false;
+  console.warn("[nuketown] abort requested", {
+    rustServerId,
+    eventId: r.eventId,
+    stack: new Error("requestStopNuketown stack").stack,
+  });
   r.abort.abort();
   return true;
 }

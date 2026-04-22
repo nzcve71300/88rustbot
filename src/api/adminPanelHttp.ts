@@ -36,7 +36,7 @@ import {
   upsertNuketownConfig,
   upsertNuketownGateCoord,
 } from "../db/nuketown.js";
-import { deleteMatch, getMatchForServer, upsertOneV1Config, upsertOneV1GateCoord } from "../db/onev1.js";
+import { deleteMatch, getMatchForServer, getOneV1Config, upsertOneV1Config, upsertOneV1GateCoord } from "../db/onev1.js";
 import { listServerMetricsForServer } from "../db/serverMetrics.js";
 import { getRustServerByIdForGuild, getGuildRowIdForRustServerId, listRustServersForGuild } from "../db/rustServers.js";
 import { performMazeDelete } from "../maze/mazeEndActions.js";
@@ -789,7 +789,8 @@ export async function handleAdminPanelRoutes(
          WHERE guild_id = :gid AND rust_server_id = :sid`,
         { gid: guildRowId, sid: rustServerId }
       );
-      requestStopNuketown(rustServerId);
+      // Do NOT stop an active lobby/match when toggling automation off.
+      // This switch is only for scheduling future lobbies.
       json(res, 200, { ok: true, enabled: false });
       return true;
     }
@@ -817,6 +818,22 @@ export async function handleAdminPanelRoutes(
     json(res, 200, {
       ok: true,
       match: match ? { id: match.id, status: match.status } : null,
+    });
+    return true;
+  }
+
+  if (rest === "onev1/config" && method === "GET") {
+    const cfg = await getOneV1Config(pool, guildRowId, rustServerId);
+    json(res, 200, {
+      ok: true,
+      config: cfg
+        ? {
+            announcementChannelId: cfg.announcementChannelId,
+            enabled: cfg.enabled,
+            kitName: cfg.kitName,
+            gateFrequency: cfg.gateFrequency,
+          }
+        : null,
     });
     return true;
   }

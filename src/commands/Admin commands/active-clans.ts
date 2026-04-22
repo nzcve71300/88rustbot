@@ -69,7 +69,7 @@ export const activeClansCommand = {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply();
 
     const guildRowId = await getOrCreateGuildRow(pool, interaction.guild.id);
     const servers = await listRustServersForGuild(pool, guildRowId);

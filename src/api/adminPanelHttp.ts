@@ -746,6 +746,12 @@ export async function handleAdminPanelRoutes(
   }
 
   if (rest === "nuketown/delete" && method === "POST") {
+    const raw = await readJsonBody(req);
+    const body = raw as { confirm?: unknown } | null;
+    if (String(body?.confirm ?? "") !== "DELETE_NUKETOWN") {
+      json(res, 400, { ok: false, error: "Missing confirmation." });
+      return true;
+    }
     const active = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);
     if (!active) {
       json(res, 400, { ok: false, error: "No active Nuketown for this server." });

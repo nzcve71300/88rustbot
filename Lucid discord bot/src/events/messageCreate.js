@@ -14,29 +14,6 @@ module.exports = {
     
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
-
-    // Handle !serversettings command (admin only)
-    if (commandName === 'serversettings') {
-      try {
-        const adminRoleName = 'Lucid Admin';
-        const member = message.member;
-        const hasAdminRole =
-          member?.roles?.cache?.some(role => role.name === adminRoleName) ||
-          member?.permissions?.has('Administrator');
-
-        if (!hasAdminRole) {
-          return message.reply('❌ You do not have permission to use this command.');
-        }
-
-        const serverSettingsHandler = require('../handlers/serverSettingsHandler');
-        await serverSettingsHandler.renderPanelMessage(message.channel, message.guild.id);
-        await message.delete().catch(() => {});
-      } catch (error) {
-        console.error('Error executing !serversettings command:', error);
-        await message.reply('❌ An error occurred while executing the serversettings command.');
-      }
-      return;
-    }
     
     // Handle !store command
     if (commandName === 'store') {

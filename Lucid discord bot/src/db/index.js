@@ -81,19 +81,6 @@ async function initializeTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS lucid_server_settings (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        guild_id VARCHAR(255) NOT NULL UNIQUE,
-        title VARCHAR(256) NOT NULL DEFAULT 'Server Settings',
-        description TEXT NOT NULL DEFAULT '',
-        embed_color INT NOT NULL DEFAULT 6954413,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_guild_id (guild_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
     console.log('✅ [LUCID] Database tables created/verified');
   } catch (error) {
     console.error('❌ [LUCID] Error initializing tables:', error.message);

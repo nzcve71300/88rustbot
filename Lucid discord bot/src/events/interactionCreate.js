@@ -90,16 +90,6 @@ module.exports = {
           }
         }
       }
-      if (interaction.customId.startsWith('ss:')) {
-        try {
-          const serverSettingsHandler = require('../handlers/serverSettingsHandler');
-          await serverSettingsHandler.handleButton(interaction);
-        } catch (error) {
-          console.error('Error handling server settings button:', error);
-          await interaction.reply({ content: 'There was an error. Please try again.', ephemeral: true }).catch(() => {});
-        }
-        return;
-      }
     } else if (interaction.isStringSelectMenu()) {
       // Handle dropdown menu selections
       if (interaction.customId === 'ticket_category_select') {
@@ -112,16 +102,6 @@ module.exports = {
             content: 'There was an error opening the ticket form. Please try again.',
             ephemeral: true,
           }).catch(() => {});
-        }
-        return;
-      }
-      if (interaction.customId === 'ss:send') {
-        try {
-          const serverSettingsHandler = require('../handlers/serverSettingsHandler');
-          await serverSettingsHandler.handleChannelSelect(interaction);
-        } catch (error) {
-          console.error('Error handling server settings channel select:', error);
-          await interaction.reply({ content: 'There was an error. Please try again.', ephemeral: true }).catch(() => {});
         }
         return;
       }
@@ -277,16 +257,6 @@ module.exports = {
             await interaction.reply(errorMessage).catch(() => {});
           }
         }
-      }
-      if (interaction.customId.startsWith('ssmodal:')) {
-        try {
-          const serverSettingsHandler = require('../handlers/serverSettingsHandler');
-          await serverSettingsHandler.handleModal(interaction);
-        } catch (error) {
-          console.error('Error handling server settings modal:', error);
-          await interaction.reply({ content: 'There was an error. Please try again.', ephemeral: true }).catch(() => {});
-        }
-        return;
       }
     }
   },

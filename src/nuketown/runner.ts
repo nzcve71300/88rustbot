@@ -23,7 +23,9 @@ function parseMsEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-const ROUND_PREP_MS = parseMsEnv("NUKETOWN_PREP_MS", 60_000);
+// Default was 60s, but this feels like "nothing is happening" after teleports.
+// Keep it configurable via env for slower servers.
+const ROUND_PREP_MS = parseMsEnv("NUKETOWN_PREP_MS", 15_000);
 const DOOR_OPEN_MS = parseMsEnv("NUKETOWN_DOOR_OPEN_MS", 15_000);
 const FINAL_PREP_MS = parseMsEnv("NUKETOWN_FINAL_PREP_MS", 30_000);
 /** Max wait for one team to be fully eliminated (PvP); avoids hanging forever if killfeed breaks. */
@@ -123,6 +125,7 @@ async function openThenCloseDoors(
   signal: AbortSignal
 ): Promise<void> {
   const [x, y, z] = broadcasterXyz;
+  console.log(`[nuketown] doors opening now (freq=${gateFrequency})`);
   const spawnCmd = `rf.spawnfakebroadcaster ${gateFrequency} 1000 ${x} ${y} ${z}`;
   const spawnRes = await runWebRconCommand(rustServerId, host, port, password, spawnCmd);
   if (!spawnRes.ok) console.error(`[nuketown] ${spawnCmd}: ${spawnRes.error}`);
@@ -130,6 +133,7 @@ async function openThenCloseDoors(
   const removeCmd = `rf.removefakeboardcaster`;
   const removeRes = await runWebRconCommand(rustServerId, host, port, password, removeCmd);
   if (!removeRes.ok) console.error(`[nuketown] ${removeCmd}: ${removeRes.error}`);
+  console.log("[nuketown] doors closed");
 }
 
 export type NuketownRunnerArgs = {

@@ -20,7 +20,8 @@ function ensureLeaderboardFont(): void {
 
 /** Canva “pt” at 96 DPI → CSS pixels for canvas */
 const PT = 96 / 72;
-const FONT_NAME_TAG = `${Math.round(32 * PT)}px`;
+/** Clan name + tag (smaller than original 32pt so they fit the boxes) */
+const FONT_CLAN = `${Math.round(26 * PT)}px`;
 const FONT_STATS = `${Math.round(20 * PT)}px`;
 
 const TEXT = "#FFFFFF";
@@ -119,9 +120,16 @@ const SLOTS: SlotLayout[] = [
   },
 ];
 
-/** Fine-tune text vs template boxes: negative = left, positive = down */
+/** Base nudge vs template: negative = left, positive = down */
 const OFFSET_X = -22;
 const OFFSET_Y = 26;
+/** Extra horizontal shift for clan name (more left) */
+const NAME_EXTRA_X = -20;
+/** Extra horizontal shift for clan tag (more left) */
+const TAG_EXTRA_X = -14;
+/** Kills / deaths / KD / members: nudge right and up vs base */
+const STATS_EXTRA_X = 12;
+const STATS_EXTRA_Y = -14;
 
 function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
@@ -159,47 +167,53 @@ export async function renderClanLeaderboardPng(
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
-  const nameFont = `${FONT_NAME_TAG} ${FONT_FAMILY}, sans-serif`;
-  const tagFont = `${FONT_NAME_TAG} ${FONT_FAMILY}, sans-serif`;
+  const nameFont = `${FONT_CLAN} ${FONT_FAMILY}, sans-serif`;
+  const tagFont = `${FONT_CLAN} ${FONT_FAMILY}, sans-serif`;
   const statFont = `${FONT_STATS} ${FONT_FAMILY}, sans-serif`;
 
   for (let i = 0; i < 10; i++) {
     const slot = SLOTS[i]!;
     const row = slots[i]!;
 
-    const ox = OFFSET_X;
-    const oy = OFFSET_Y;
+    const bx = OFFSET_X;
+    const by = OFFSET_Y;
+    const nx = bx + NAME_EXTRA_X;
+    const tx = bx + TAG_EXTRA_X;
+    const sx = bx + STATS_EXTRA_X;
+    const sy = by + STATS_EXTRA_Y;
 
     if (!row) {
       ctx.font = nameFont;
-      ctx.fillText("—", slot.name.x + ox, slot.name.y + oy);
+      ctx.fillText("—", slot.name.x + nx, slot.name.y + by);
       ctx.font = tagFont;
-      ctx.fillText("—", slot.tag.x + ox, slot.tag.y + oy);
+      ctx.fillText("—", slot.tag.x + tx, slot.tag.y + by);
       ctx.font = statFont;
-      ctx.fillText("—", slot.kills.x + ox, slot.kills.y + oy);
-      ctx.fillText("—", slot.deaths.x + ox, slot.deaths.y + oy);
-      ctx.fillText("—", slot.kd.x + ox, slot.kd.y + oy);
-      ctx.fillText("—", slot.members.x + ox, slot.members.y + oy);
+      ctx.fillText("—", slot.kills.x + sx, slot.kills.y + sy);
+      ctx.fillText("—", slot.deaths.x + sx, slot.deaths.y + sy);
+      ctx.fillText("—", slot.kd.x + sx, slot.kd.y + sy);
+      ctx.fillText("—", slot.members.x + sx, slot.members.y + sy);
       continue;
     }
 
     const tagRaw = row.clanTag?.trim() ?? "";
     const tagDisplay = tagRaw ? `[${tagRaw}]` : "—";
 
-    const nameMax = Math.max(40, slot.tag.x - slot.name.x - 12);
-    const tagMax = Math.max(80, Math.min(480, w - slot.tag.x - 24));
+    const nameDrawX = slot.name.x + nx;
+    const tagDrawX = slot.tag.x + tx;
+    const nameMax = Math.max(40, tagDrawX - nameDrawX - 12);
+    const tagMax = Math.max(80, Math.min(480, w - tagDrawX - 24));
 
     ctx.font = nameFont;
-    ctx.fillText(truncate(ctx, row.clanName || "—", nameMax), slot.name.x + ox, slot.name.y + oy);
+    ctx.fillText(truncate(ctx, row.clanName || "—", nameMax), nameDrawX, slot.name.y + by);
 
     ctx.font = tagFont;
-    ctx.fillText(truncate(ctx, tagDisplay, tagMax), slot.tag.x + ox, slot.tag.y + oy);
+    ctx.fillText(truncate(ctx, tagDisplay, tagMax), tagDrawX, slot.tag.y + by);
 
     ctx.font = statFont;
-    ctx.fillText(String(row.kills), slot.kills.x + ox, slot.kills.y + oy);
-    ctx.fillText(String(row.deaths), slot.deaths.x + ox, slot.deaths.y + oy);
-    ctx.fillText(formatKdRatio(row.kills, row.deaths), slot.kd.x + ox, slot.kd.y + oy);
-    ctx.fillText(String(row.memberCount), slot.members.x + ox, slot.members.y + oy);
+    ctx.fillText(String(row.kills), slot.kills.x + sx, slot.kills.y + sy);
+    ctx.fillText(String(row.deaths), slot.deaths.x + sx, slot.deaths.y + sy);
+    ctx.fillText(formatKdRatio(row.kills, row.deaths), slot.kd.x + sx, slot.kd.y + sy);
+    ctx.fillText(String(row.memberCount), slot.members.x + sx, slot.members.y + sy);
   }
 
   return canvas.toBuffer("image/png");

@@ -284,3 +284,38 @@ export async function deleteExpiredInvites(pool: Pool): Promise<number> {
   return res.affectedRows;
 }
 
+export type GuildClanListRow = {
+  clanName: string;
+  clanTag: string | null;
+  memberCount: number;
+};
+
+/**
+ * All clans in a Discord guild with member counts (clans are guild-scoped; there is no per–Rust-server clan row).
+ * Ordered by clan name.
+ */
+export async function listGuildClansWithMemberCounts(
+  pool: Pool,
+  guildRowId: number
+): Promise<GuildClanListRow[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `
+    SELECT
+      c.name AS clanName,
+      c.tag AS clanTag,
+      COUNT(cm.discord_user_id) AS memberCount
+    FROM clans c
+    LEFT JOIN clan_members cm ON cm.clan_id = c.id
+    WHERE c.guild_id = :gid
+    GROUP BY c.id, c.name, c.tag
+    ORDER BY c.name ASC
+    `,
+    { gid: guildRowId }
+  );
+  return rows.map((r) => ({
+    clanName: String((r as { clanName: unknown }).clanName ?? ""),
+    clanTag: (r as { clanTag: unknown }).clanTag != null ? String((r as { clanTag: unknown }).clanTag) : null,
+    memberCount: Number((r as { memberCount: unknown }).memberCount ?? 0),
+  }));
+}
+

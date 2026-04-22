@@ -1,4 +1,4 @@
-import { createCanvas, loadImage, type CanvasRenderingContext2D } from "canvas";
+import { createCanvas, loadImage, registerFont, type CanvasRenderingContext2D } from "canvas";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import type { ClanLeaderboardRow } from "../db/clanLeaderboard.js";
@@ -6,12 +6,22 @@ import { formatKdRatio } from "../stats/kdRatio.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = join(__dirname, "..", "images", "leaderboardnew.png");
+/** Bundled OFL font — Linux servers often lack Segoe/Helvetica; without a real font, canvas draws “tofu” blocks. */
+const FONT_FILE = join(__dirname, "..", "fonts", "NotoSans-Regular.ttf");
+/** Single-word family so node-canvas/Pango always resolves the registered TTF (multi-word names often fail on Linux). */
+const FONT_FAMILY = "LucidLeaderboard";
+
+let fontRegistered = false;
+function ensureLeaderboardFont(): void {
+  if (fontRegistered) return;
+  registerFont(FONT_FILE, { family: FONT_FAMILY });
+  fontRegistered = true;
+}
 
 /** Canva “pt” at 96 DPI → CSS pixels for canvas */
 const PT = 96 / 72;
 const FONT_NAME_TAG = `${Math.round(32 * PT)}px`;
 const FONT_STATS = `${Math.round(20 * PT)}px`;
-const FONT_STACK = '"Segoe UI", "Helvetica Neue", Arial, sans-serif';
 
 const TEXT = "#FFFFFF";
 
@@ -138,18 +148,20 @@ export async function renderClanLeaderboardPng(
   const canvas = createCanvas(w, h);
   const ctx = canvas.getContext("2d");
 
+  ensureLeaderboardFont();
+
   ctx.drawImage(bg, 0, 0);
   ctx.fillStyle = TEXT;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
+  const nameFont = `${FONT_NAME_TAG} ${FONT_FAMILY}, sans-serif`;
+  const tagFont = `${FONT_NAME_TAG} ${FONT_FAMILY}, sans-serif`;
+  const statFont = `${FONT_STATS} ${FONT_FAMILY}, sans-serif`;
+
   for (let i = 0; i < 10; i++) {
     const slot = SLOTS[i]!;
     const row = slots[i]!;
-
-    const nameFont = `${FONT_NAME_TAG} ${FONT_STACK}`;
-    const tagFont = `${FONT_NAME_TAG} ${FONT_STACK}`;
-    const statFont = `${FONT_STATS} ${FONT_STACK}`;
 
     if (!row) {
       ctx.font = nameFont;

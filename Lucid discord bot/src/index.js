@@ -10,6 +10,33 @@ config();
 const lockPath = path.join(__dirname, '..', '.lucid-bot.lock');
 let lockFd = null;
 function acquireLockOrExit() {
+  // If a stale lock file exists (e.g. crash/reboot), remove it. If the PID is still alive, exit.
+  if (fs.existsSync(lockPath)) {
+    try {
+      const raw = fs.readFileSync(lockPath, 'utf8').trim();
+      const pid = Number.parseInt(raw, 10);
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0); // throws if pid doesn't exist / no permission
+          console.error('❌ [LUCID] Another Lucid bot instance is already running. Exiting to prevent duplicate messages.');
+          process.exit(1);
+        } catch {
+          // stale lock, fall through and remove it
+        }
+      }
+    } catch {
+      // ignore read/parse errors; we'll attempt to remove it
+    }
+    try {
+      fs.unlinkSync(lockPath);
+      console.warn('⚠️ [LUCID] Removed stale lock file. Starting fresh.');
+    } catch {
+      // If we can't remove it, don't risk starting multiple instances.
+      console.error('❌ [LUCID] Another Lucid bot instance is already running (lock present). Exiting.');
+      process.exit(1);
+    }
+  }
+
   try {
     lockFd = fs.openSync(lockPath, 'wx');
     fs.writeFileSync(lockFd, String(process.pid));

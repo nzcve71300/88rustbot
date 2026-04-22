@@ -839,7 +839,7 @@ export async function handleAdminPanelRoutes(
     }
 
     const servers = await listRustServersForGuild(pool, guildRowId);
-    if (!servers.some((s) => s.id === rustServerId)) {
+    if (!servers.some((s) => String(s.id) === String(rustServerId))) {
       json(res, 400, { ok: false, error: "Invalid server." });
       return true;
     }

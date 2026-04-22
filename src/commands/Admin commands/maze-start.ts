@@ -69,7 +69,7 @@ export const mazeStartCommand = {
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(mazeRestartCustomId("y", serverId))
-          .setLabel("Yes, force next lobby now")
+          .setLabel("Force start lobby / reset schedule")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(mazeRestartCustomId("n", serverId))
@@ -81,7 +81,8 @@ export const mazeStartCommand = {
           baseEmbed()
             .setTitle("Maze automation already enabled")
             .setDescription(
-              "Do you want to **reset the schedule** and open the next automatic lobby **as soon as possible**?"
+              "If a Maze lobby is currently open, this will **force start** it immediately.\n" +
+                "If no lobby is open, it will **reset the schedule** so the next automatic lobby opens as soon as possible."
             ),
         ],
         components: [row],

@@ -27,7 +27,8 @@ export function buildDeleteMazeZoneCommand(zoneName: string): string {
 function teleportPosRotCommand(xyz: [number, number, number], ingameName: string): string {
   const pos = formatParenXyz(xyz);
   const inner = quoteForRconArg(ingameName.trim());
-  return `global.teleportposrot ${pos} "${inner}" "1"`;
+  // IMPORTANT: last arg must be "0" for our Rust server command behavior.
+  return `global.teleportposrot ${pos} "${inner}" "0"`;
 }
 
 function parseMsEnv(name: string, fallback: number): number {

@@ -119,6 +119,10 @@ const SLOTS: SlotLayout[] = [
   },
 ];
 
+/** Fine-tune text vs template boxes: negative = left, positive = down */
+const OFFSET_X = -22;
+const OFFSET_Y = 26;
+
 function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
   let t = text;
@@ -163,16 +167,19 @@ export async function renderClanLeaderboardPng(
     const slot = SLOTS[i]!;
     const row = slots[i]!;
 
+    const ox = OFFSET_X;
+    const oy = OFFSET_Y;
+
     if (!row) {
       ctx.font = nameFont;
-      ctx.fillText("—", slot.name.x, slot.name.y);
+      ctx.fillText("—", slot.name.x + ox, slot.name.y + oy);
       ctx.font = tagFont;
-      ctx.fillText("—", slot.tag.x, slot.tag.y);
+      ctx.fillText("—", slot.tag.x + ox, slot.tag.y + oy);
       ctx.font = statFont;
-      ctx.fillText("—", slot.kills.x, slot.kills.y);
-      ctx.fillText("—", slot.deaths.x, slot.deaths.y);
-      ctx.fillText("—", slot.kd.x, slot.kd.y);
-      ctx.fillText("—", slot.members.x, slot.members.y);
+      ctx.fillText("—", slot.kills.x + ox, slot.kills.y + oy);
+      ctx.fillText("—", slot.deaths.x + ox, slot.deaths.y + oy);
+      ctx.fillText("—", slot.kd.x + ox, slot.kd.y + oy);
+      ctx.fillText("—", slot.members.x + ox, slot.members.y + oy);
       continue;
     }
 
@@ -183,16 +190,16 @@ export async function renderClanLeaderboardPng(
     const tagMax = Math.max(80, Math.min(480, w - slot.tag.x - 24));
 
     ctx.font = nameFont;
-    ctx.fillText(truncate(ctx, row.clanName || "—", nameMax), slot.name.x, slot.name.y);
+    ctx.fillText(truncate(ctx, row.clanName || "—", nameMax), slot.name.x + ox, slot.name.y + oy);
 
     ctx.font = tagFont;
-    ctx.fillText(truncate(ctx, tagDisplay, tagMax), slot.tag.x, slot.tag.y);
+    ctx.fillText(truncate(ctx, tagDisplay, tagMax), slot.tag.x + ox, slot.tag.y + oy);
 
     ctx.font = statFont;
-    ctx.fillText(String(row.kills), slot.kills.x, slot.kills.y);
-    ctx.fillText(String(row.deaths), slot.deaths.x, slot.deaths.y);
-    ctx.fillText(formatKdRatio(row.kills, row.deaths), slot.kd.x, slot.kd.y);
-    ctx.fillText(String(row.memberCount), slot.members.x, slot.members.y);
+    ctx.fillText(String(row.kills), slot.kills.x + ox, slot.kills.y + oy);
+    ctx.fillText(String(row.deaths), slot.deaths.x + ox, slot.deaths.y + oy);
+    ctx.fillText(formatKdRatio(row.kills, row.deaths), slot.kd.x + ox, slot.kd.y + oy);
+    ctx.fillText(String(row.memberCount), slot.members.x + ox, slot.members.y + oy);
   }
 
   return canvas.toBuffer("image/png");

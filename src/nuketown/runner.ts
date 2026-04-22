@@ -115,6 +115,24 @@ async function killRosterSequential(
   }
 }
 
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T | null> {
+  if (!Number.isFinite(ms) || ms <= 0) return await p;
+  return await new Promise<T | null>((resolve, reject) => {
+    const t = setTimeout(() => resolve(null), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        console.error(`[nuketown] ${label} failed:`, e);
+        reject(e);
+      }
+    );
+  });
+}
+
 async function openThenCloseDoors(
   rustServerId: number,
   host: string,
@@ -234,6 +252,7 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
 
       for (let round = 1; round <= 3; round++) {
         if (abort.signal.aborted) throw new Error("Nuketown aborted");
+        console.log(`[nuketown] ${label} round ${round}/3 starting (score ${scoreA}-${scoreB})`);
 
         bracket.currentMatch = {
           label,
@@ -301,6 +320,7 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
         roundWinners.push(winnerSlot);
         if (winnerSlot === aSlot) scoreA++;
         else scoreB++;
+        console.log(`[nuketown] ${label} round ${round}/3 winner team=${winnerSlot} (score ${scoreA}-${scoreB})`);
 
         await postInfo(
           client,
@@ -313,8 +333,20 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
         nuketownKillTracker.clearAfterRound(rustServerId);
 
         // Kill everyone in this matchup so the next round (or next match) starts clean.
+        // IMPORTANT: don't let slow/hung RCON kills stall the entire bracket.
         const toKill = roster.map((p) => p.ingameName);
-        await killRosterSequential(rustServerId, host, port, password, toKill);
+        const killed = await withTimeout(
+          killRosterSequential(rustServerId, host, port, password, toKill),
+          parseMsEnv("NUKETOWN_ROUND_RESET_KILL_TIMEOUT_MS", 7000),
+          "round reset killRosterSequential"
+        );
+        if (killed === null) {
+          console.warn(
+            `[nuketown] round reset kills timed out; continuing to next round to avoid stalling (names=${JSON.stringify(
+              toKill
+            )})`
+          );
+        }
 
         await sleepAbortable(2_000, abort.signal);
       }

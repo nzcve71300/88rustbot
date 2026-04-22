@@ -143,6 +143,10 @@ type ServerCtx = {
 class MazeKillTracker {
   private byServer = new Map<number, ServerCtx>();
   private flushByServer = new Map<number, Promise<void>>();
+  /** Deduplicate kill lines that arrive multiple times from WebRCON / console fanout. */
+  private recentKillKeysByServer = new Map<number, Map<string, number>>();
+  private static readonly DEDUPE_WINDOW_MS = 2500;
+  private static readonly DEDUPE_MAX_KEYS = 200;
   /** `${rustServerId}:${discordUserId}` → wait for `has entered the game` before maze respawn */
   private pendingRespawn = new Map<
     string,
@@ -176,6 +180,7 @@ class MazeKillTracker {
     const sid = rustSid(rustServerId);
     this.byServer.set(sid, { ...ctx, rustServerId: sid, roster: null });
     this.flushByServer.set(sid, Promise.resolve());
+    this.recentKillKeysByServer.set(sid, new Map());
     if (mazeRespawnDebug()) {
       console.log(`[maze respawn debug] registered rustServerId=${sid} eventId=${ctx.eventId} — kill/enter lines will be processed`);
     }
@@ -236,6 +241,7 @@ class MazeKillTracker {
     this.clearPendingForServer(sid);
     this.byServer.delete(sid);
     this.flushByServer.delete(sid);
+    this.recentKillKeysByServer.delete(sid);
   }
 
   async drain(rustServerId: number): Promise<void> {
@@ -512,6 +518,28 @@ class MazeKillTracker {
       if (killerRow) {
         if (!victimRow && !victimOptional()) return;
         const isTeamKill = victimRow != null && victimRow.clanId === killerRow.clanId;
+
+        // WebRCON / console fanout can emit the same kill more than once; dedupe by killer/victim + event.
+        const dedupeVictim = victimRow?.discordUserId ?? victimName;
+        const dedupeKey = `${a.eventId}:${killerRow.discordUserId}:${String(dedupeVictim)}`;
+        const now = Date.now();
+        const recent = this.recentKillKeysByServer.get(rustServerId);
+        if (recent) {
+          const last = recent.get(dedupeKey);
+          if (last != null && now - last < MazeKillTracker.DEDUPE_WINDOW_MS) {
+            if (mazeRespawnDebug()) console.log(`[maze kills] deduped duplicate kill line key=${dedupeKey}`);
+            return;
+          }
+          recent.set(dedupeKey, now);
+          if (recent.size > MazeKillTracker.DEDUPE_MAX_KEYS) {
+            const entries = [...recent.entries()].sort((x, y) => x[1] - y[1]);
+            for (let i = 0; i < Math.ceil(MazeKillTracker.DEDUPE_MAX_KEYS * 0.25); i++) {
+              const k = entries[i]?.[0];
+              if (k) recent.delete(k);
+            }
+          }
+        }
+
         if (!isTeamKill) {
           await incrementMazeKill(pool, a.eventId, killerRow.clanId, killerRow.discordUserId);
           try {

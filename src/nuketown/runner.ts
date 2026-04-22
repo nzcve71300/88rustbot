@@ -31,6 +31,10 @@ const FINAL_PREP_MS = parseMsEnv("NUKETOWN_FINAL_PREP_MS", 30_000);
 /** Max wait for one team to be fully eliminated (PvP); avoids hanging forever if killfeed breaks. */
 const ROUND_TIMEOUT_MS = parseMsEnv("NUKETOWN_ROUND_TIMEOUT_MS", 45 * 60_000);
 const KILL_RETRY_GAP_MS = parseMsEnv("NUKETOWN_KILL_RETRY_GAP_MS", 250);
+// Give Rust clients time to respawn after round-reset kills before we teleport/kit for the next round.
+const POST_KILL_RESPAWN_MS = parseMsEnv("NUKETOWN_POST_KILL_RESPAWN_MS", 6_000);
+const TELEPORT_KIT_RETRY_MS = parseMsEnv("NUKETOWN_TP_KIT_RETRY_MS", 2_000);
+const TELEPORT_KIT_MAX_ATTEMPTS = Math.max(1, parseMsEnv("NUKETOWN_TP_KIT_MAX_ATTEMPTS", 3));
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -63,12 +67,35 @@ async function giveKit(pool: Pool, rustServerId: number, host: string, port: num
   const kitCmd = `kit givetoplayer "${quoteForRconArg(kitName)}" "${quoteForRconArg(ingameName)}"`;
   const res = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
   if (!res.ok) console.error(`[nuketown] kit failed for ${ingameName}: ${res.error}`);
+  return res.ok;
 }
 
 async function teleportPlayer(rustServerId: number, host: string, port: number, password: string, ingameName: string, posComma: string) {
   const tpCmd = `global.teleportpos ${posComma} "${quoteForRconArg(ingameName)}"`;
   const res = await runWebRconCommand(rustServerId, host, port, password, tpCmd);
   if (!res.ok) console.error(`[nuketown] teleport failed for ${ingameName}: ${res.error}`);
+  return res.ok;
+}
+
+async function ensureTeleportAndKit(opts: {
+  pool: Pool;
+  rustServerId: number;
+  host: string;
+  port: number;
+  password: string;
+  kitName: string;
+  ingameName: string;
+  posComma: string;
+  signal: AbortSignal;
+}): Promise<void> {
+  const { pool, rustServerId, host, port, password, kitName, ingameName, posComma, signal } = opts;
+  for (let attempt = 1; attempt <= TELEPORT_KIT_MAX_ATTEMPTS; attempt++) {
+    if (signal.aborted) throw new Error("Nuketown aborted");
+    const kitOk = await giveKit(pool, rustServerId, host, port, password, kitName, ingameName);
+    const tpOk = await teleportPlayer(rustServerId, host, port, password, ingameName, posComma);
+    if (kitOk && tpOk) return;
+    if (attempt < TELEPORT_KIT_MAX_ATTEMPTS) await sleepAbortable(TELEPORT_KIT_RETRY_MS, signal);
+  }
 }
 
 /**
@@ -291,8 +318,17 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
         await Promise.all(
           roster.map(async (p) => {
             const pos = p.slot === aSlot ? posA : posB;
-            await giveKit(pool, rustServerId, host, port, password, kitName, p.ingameName);
-            await teleportPlayer(rustServerId, host, port, password, p.ingameName, pos);
+            await ensureTeleportAndKit({
+              pool,
+              rustServerId,
+              host,
+              port,
+              password,
+              kitName,
+              ingameName: p.ingameName,
+              posComma: pos,
+              signal: abort.signal,
+            });
           })
         );
 
@@ -332,9 +368,11 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
         // Stop tracking before RCON kills so stray console lines cannot affect the next round.
         nuketownKillTracker.clearAfterRound(rustServerId);
 
-        // Kill everyone in this matchup so the next round (or next match) starts clean.
+        // Round reset:
+        // - Rounds 1-2: kill everyone in this matchup so the next round starts clean.
+        // - Round 3: kill ONLY the winners (like 1v1); the losing team is already wiped.
         // IMPORTANT: don't let slow/hung RCON kills stall the entire bracket.
-        const toKill = roster.map((p) => p.ingameName);
+        const toKill = (round === 3 ? roster.filter((p) => p.slot === winnerSlot) : roster).map((p) => p.ingameName);
         const killed = await withTimeout(
           killRosterSequential(rustServerId, host, port, password, toKill),
           parseMsEnv("NUKETOWN_ROUND_RESET_KILL_TIMEOUT_MS", 7000),
@@ -348,7 +386,7 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
           );
         }
 
-        await sleepAbortable(2_000, abort.signal);
+        await sleepAbortable(POST_KILL_RESPAWN_MS, abort.signal);
       }
 
       const matchWinner = scoreA > scoreB ? aSlot : bSlot;

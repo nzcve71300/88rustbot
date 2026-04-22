@@ -10,26 +10,21 @@ import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { listRustServersForGuild } from "../../db/rustServers.js";
 import { baseEmbed } from "../../embeds/standard.js";
+import { renderClanLeaderboardPng } from "../../leaderboard/renderLeaderboardImage.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { getTopClansForServerLeaderboard } from "../../db/clanLeaderboard.js";
-import { formatKdRatio } from "../../stats/kdRatio.js";
-
-function fmtClanName(name: string, tag: string | null): string {
-  const t = tag?.trim();
-  return t ? `[${t}] ${name}` : name;
-}
 
 export const leaderboardCommand = {
   data: new SlashCommandBuilder()
     .setName("leaderboard")
-    .setDescription("Post the top 10 clan leaderboard for a Rust server (admin only).")
+    .setDescription("Post the top 10 clan leaderboard image for a Rust server (admin only).")
     .addStringOption((o) =>
       o.setName("server").setDescription("Rust server in this Discord").setRequired(true).setAutocomplete(true)
     )
     .addChannelOption((o) =>
       o
         .setName("channel")
-        .setDescription("Channel to post the leaderboard embed")
+        .setDescription("Channel to post the leaderboard image")
         .setRequired(true)
         .addChannelTypes(ChannelType.GuildText)
     ),
@@ -82,40 +77,39 @@ export const leaderboardCommand = {
 
     const top = await getTopClansForServerLeaderboard(pool, guildRowId, serverId, 10);
 
-    const description =
-      top.length === 0
-        ? "_No clan stats recorded for this server yet. Stats build from the killfeed when linked players get kills/deaths._"
-        : top
-            .map((row, i) => {
-              const kd = formatKdRatio(row.kills, row.deaths);
-              const label = fmtClanName(row.clanName, row.clanTag);
-              return (
-                `**${i + 1}.** ${label}\n` +
-                `└ Kills: **${row.kills}** · Deaths: **${row.deaths}** · KD: **${kd}**\n` +
-                `└ Total clan members: **${row.memberCount}**`
-              );
-            })
-            .join("\n\n");
+    let png: Buffer;
+    try {
+      png = await renderClanLeaderboardPng(srv.nickname, top);
+    } catch (err) {
+      console.error("[leaderboard] render failed:", err);
+      await interaction.editReply({
+        embeds: [baseEmbed().setTitle("Render failed").setDescription("Could not generate the leaderboard image. Check bot logs.")],
+      });
+      return;
+    }
 
-    const embed = baseEmbed()
-      .setTitle(`🏆 Top clans — ${srv.nickname}`)
-      .setDescription(description);
+    const safeName = srv.nickname.replace(/[^\w\-]+/g, "_").slice(0, 40) || "server";
+    const filename = `leaderboard-${safeName}.png`;
 
     try {
-      await channel.send({ embeds: [embed] });
+      await channel.send({
+        files: [{ attachment: png, name: filename }],
+      });
     } catch {
       await interaction.editReply({
         embeds: [
           baseEmbed()
             .setTitle("Could not send")
-            .setDescription("I couldn’t post in that channel. Check **Send Messages** and **Embed Links** permissions."),
+            .setDescription(
+              "I couldn’t post in that channel. The bot needs **Send Messages**, **Attach Files**, and **Embed Links** (if link previews are used)."
+            ),
         ],
       });
       return;
     }
 
     await interaction.editReply({
-      embeds: [baseEmbed().setTitle("Posted").setDescription(`Leaderboard sent to ${channel}.`)],
+      content: `Posted leaderboard image to ${channel}.`,
     });
   },
 };

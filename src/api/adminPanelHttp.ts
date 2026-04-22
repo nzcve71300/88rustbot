@@ -223,6 +223,7 @@ export async function handleAdminPanelRoutes(
             announcementRoleId: cfg.announcementRoleId,
             gates: cfg.gates,
             gateFrequency: cfg.gateFrequency,
+            teamLimit: cfg.teamLimit,
             messageId: cfg.messageId,
             howOftenHours: cfg.howOftenHours,
             waves: cfg.waves,
@@ -258,6 +259,7 @@ export async function handleAdminPanelRoutes(
       announcementChannelId?: string;
       gates?: number;
       gateFrequency?: number;
+      teamLimit?: number;
       announcementRoleId?: string;
       howOftenHours?: number;
       waves?: number;
@@ -267,6 +269,7 @@ export async function handleAdminPanelRoutes(
     const announcementChannelId = String(body.announcementChannelId ?? "").trim();
     const gates = Number(body.gates);
     const gateFrequency = Number(body.gateFrequency);
+    const teamLimit = Number(body.teamLimit);
     const announcementRoleId = String(body.announcementRoleId ?? "").trim();
     const howOftenHours = Number(body.howOftenHours);
     const waves = Number(body.waves);
@@ -279,6 +282,10 @@ export async function handleAdminPanelRoutes(
     }
     if (!Number.isFinite(gateFrequency) || gateFrequency < 1000 || gateFrequency > 9999) {
       json(res, 400, { ok: false, error: "Gate frequency must be 1000–9999." });
+      return true;
+    }
+    if (!Number.isFinite(teamLimit) || teamLimit < 1 || teamLimit > 20) {
+      json(res, 400, { ok: false, error: "Team limit must be 1–20." });
       return true;
     }
     if (!Number.isFinite(howOftenHours) || howOftenHours < 0.25 || howOftenHours > 168) {
@@ -324,6 +331,7 @@ export async function handleAdminPanelRoutes(
       announcementRoleId: role.id,
       gates,
       gateFrequency,
+      teamLimit,
       messageId: sent.id,
       howOftenHours,
       waves,

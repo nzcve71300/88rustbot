@@ -107,7 +107,17 @@ export const kothJoinCommand = {
       gate = found;
     }
 
-    const res = await addEventMember(pool, eventId, clan.clanId, interaction.user.id);
+    const res = await addEventMember(pool, eventId, clan.clanId, interaction.user.id, config.teamLimit);
+    if (res === "team_full") {
+      await interaction.editReply({
+        embeds: [
+          baseEmbed()
+            .setTitle("Gate full")
+            .setDescription(`Your clan already has **${config.teamLimit}** member(s) in this KOTH.`),
+        ],
+      });
+      return;
+    }
     if (res === "already_joined") {
       await interaction.editReply({ embeds: [baseEmbed().setTitle("Already joined").setDescription("You are already in this KOTH event.")] });
       return;

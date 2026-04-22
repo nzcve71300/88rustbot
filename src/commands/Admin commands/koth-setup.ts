@@ -48,6 +48,14 @@ export const kothSetupCommand = {
         .setMinValue(1000)
         .setMaxValue(9999)
     )
+    .addIntegerOption((o) =>
+      o
+        .setName("team_limit")
+        .setDescription("Max members per clan (per gate) that can join this KOTH (1–20)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(20)
+    )
     .addRoleOption((o) => o.setName("announcement_role").setDescription("Role to mention").setRequired(true))
     .addNumberOption((o) =>
       o
@@ -98,6 +106,7 @@ export const kothSetupCommand = {
     const channel = interaction.options.getChannel("announcementchannel", true);
     const gates = interaction.options.getInteger("gates", true);
     const gateFrequency = interaction.options.getInteger("gate_frequency", true);
+    const teamLimit = interaction.options.getInteger("team_limit", true);
     const role = interaction.options.getRole("announcement_role", true);
     const howOften = interaction.options.getNumber("how_often", true);
     const waves = interaction.options.getInteger("waves", true);
@@ -126,6 +135,7 @@ export const kothSetupCommand = {
       announcementRoleId: role.id,
       gates,
       gateFrequency,
+      teamLimit,
       messageId: sent.id,
       howOftenHours: howOften,
       waves,

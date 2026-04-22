@@ -150,6 +150,7 @@ export async function ensureSchema(): Promise<void> {
         announcement_role_id BIGINT UNSIGNED NULL,
         gates TINYINT UNSIGNED NOT NULL,
         gate_frequency INT UNSIGNED NOT NULL,
+        team_limit TINYINT UNSIGNED NOT NULL DEFAULT 5,
         message_id BIGINT UNSIGNED NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -632,6 +633,7 @@ export async function ensureSchema(): Promise<void> {
     await ignoreDup("ALTER TABLE koth_configs ADD COLUMN waves INT UNSIGNED NULL");
     await ignoreDup("ALTER TABLE koth_configs ADD COLUMN duration_per_wave_min INT UNSIGNED NULL");
     await ignoreDup("ALTER TABLE koth_configs ADD COLUMN kit_name VARCHAR(64) NULL");
+    await ignoreDup("ALTER TABLE koth_configs ADD COLUMN team_limit TINYINT UNSIGNED NOT NULL DEFAULT 5");
     await ignoreDup(
       "ALTER TABLE koth_configs ADD COLUMN automation_started TINYINT(1) NOT NULL DEFAULT 0"
     );

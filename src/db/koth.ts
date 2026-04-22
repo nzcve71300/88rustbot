@@ -6,6 +6,7 @@ export type KothConfig = {
   announcementRoleId: string | null;
   gates: number;
   gateFrequency: number;
+  teamLimit: number;
   messageId: string | null;
   howOftenHours: number | null;
   waves: number | null;
@@ -20,6 +21,7 @@ export type KothConfigPatch = Partial<{
   announcementRoleId: string | null;
   gates: number;
   gateFrequency: number;
+  teamLimit: number;
   messageId: string | null;
   howOftenHours: number | null;
   waves: number | null;
@@ -36,6 +38,7 @@ function rowToKothConfig(r: Record<string, unknown>, rustServerId: number): Koth
     announcementRoleId: r.announcementRoleId != null ? String(r.announcementRoleId) : null,
     gates: Number(r.gates),
     gateFrequency: Number(r.gateFrequency),
+    teamLimit: r.teamLimit != null ? Number(r.teamLimit) : 5,
     messageId: r.messageId != null ? String(r.messageId) : null,
     howOftenHours: r.howOftenHours != null ? Number(r.howOftenHours) : null,
     waves: r.waves != null ? Number(r.waves) : null,
@@ -56,6 +59,7 @@ async function fetchKothConfigRow(
             CAST(announcement_channel_id AS CHAR) as announcementChannelId,
             CAST(announcement_role_id AS CHAR) as announcementRoleId,
             gates, gate_frequency as gateFrequency,
+            team_limit as teamLimit,
             CAST(message_id AS CHAR) as messageId,
             how_often_hours as howOftenHours,
             waves, duration_per_wave_min as durationPerWaveMin,
@@ -80,6 +84,7 @@ export function isKothAutomationConfigComplete(c: KothConfig | null): boolean {
   if (!c.waves || c.waves < 1) return false;
   if (!c.durationPerWaveMin || c.durationPerWaveMin < 1) return false;
   if (!c.kitName?.trim()) return false;
+  if (!c.teamLimit || c.teamLimit < 1) return false;
   return true;
 }
 
@@ -98,6 +103,7 @@ export async function mergeKothConfig(
       patch.announcementRoleId !== undefined ? patch.announcementRoleId : cur?.announcementRoleId ?? null,
     gates: patch.gates !== undefined ? patch.gates : cur?.gates ?? 1,
     gateFrequency: patch.gateFrequency !== undefined ? patch.gateFrequency : cur?.gateFrequency ?? 1000,
+    teamLimit: patch.teamLimit !== undefined ? patch.teamLimit : cur?.teamLimit ?? 5,
     messageId: patch.messageId !== undefined ? patch.messageId : cur?.messageId ?? null,
     howOftenHours: patch.howOftenHours !== undefined ? patch.howOftenHours : cur?.howOftenHours ?? null,
     waves: patch.waves !== undefined ? patch.waves : cur?.waves ?? null,
@@ -111,14 +117,15 @@ export async function mergeKothConfig(
   }
 
   await pool.query<ResultSetHeader>(
-    `INSERT INTO koth_configs (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, gates, gate_frequency, message_id,
+    `INSERT INTO koth_configs (guild_id, rust_server_id, announcement_channel_id, announcement_role_id, gates, gate_frequency, team_limit, message_id,
         how_often_hours, waves, duration_per_wave_min, kit_name, automation_started, next_lobby_at_ms)
-     VALUES (:gid, :sid, :chan, :role, :gates, :freq, :msg, :hoh, :waves, :dmin, :kit, :ast, :nextMs)
+     VALUES (:gid, :sid, :chan, :role, :gates, :freq, :tlimit, :msg, :hoh, :waves, :dmin, :kit, :ast, :nextMs)
      ON DUPLICATE KEY UPDATE
        announcement_channel_id = VALUES(announcement_channel_id),
        announcement_role_id = VALUES(announcement_role_id),
        gates = VALUES(gates),
        gate_frequency = VALUES(gate_frequency),
+       team_limit = VALUES(team_limit),
        message_id = VALUES(message_id),
        how_often_hours = VALUES(how_often_hours),
        waves = VALUES(waves),
@@ -133,6 +140,7 @@ export async function mergeKothConfig(
       role: merged.announcementRoleId,
       gates: merged.gates,
       freq: merged.gateFrequency,
+      tlimit: merged.teamLimit,
       msg: merged.messageId,
       hoh: merged.howOftenHours,
       waves: merged.waves,
@@ -729,8 +737,17 @@ export async function addEventMember(
   pool: Pool,
   eventId: number,
   clanId: number,
-  discordUserId: string
-): Promise<"added" | "already_joined"> {
+  discordUserId: string,
+  teamLimit: number
+): Promise<"added" | "already_joined" | "team_full"> {
+  // Team limit is "max members from this clan allowed in this event" (one clan == one gate).
+  const lim = Math.max(1, Math.floor(teamLimit));
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS c FROM koth_event_members WHERE event_id = :eid AND clan_id = :cid`,
+    { eid: eventId, cid: clanId }
+  );
+  const c = Number((countRows[0] as { c: number }).c);
+  if (Number.isFinite(c) && c >= lim) return "team_full";
   try {
     await pool.query<ResultSetHeader>(
       `INSERT INTO koth_event_members (event_id, clan_id, discord_user_id) VALUES (:eid, :cid, :uid)`,

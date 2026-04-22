@@ -876,6 +876,7 @@ export function startCommandCenterApi(client?: Client): void {
             teleportCountdownMs: 0,
             doorDelayMs: kothDoorMs,
             gatesTotal: kCfg?.gates ?? null,
+            teamLimit: kCfg?.teamLimit ?? null,
             automationStarted: kCfg?.automationStarted ?? false,
             nextLobbyAtMs: kCfg?.nextLobbyAtMs ?? null,
             lobbyEndsAtMs: kMeta?.lobbyEndsAtMs ?? null,
@@ -1197,9 +1198,13 @@ export function startCommandCenterApi(client?: Client): void {
               gate = found;
             }
 
-            const r = await addEventMember(pool, eventId, clan.clanId, discordUserId);
+            const r = await addEventMember(pool, eventId, clan.clanId, discordUserId, config.teamLimit);
             if (r === "already_joined") {
               json(res, 200, { ok: true, joined: false, already: true, message: "Already joined." });
+              return;
+            }
+            if (r === "team_full") {
+              json(res, 409, { ok: false, error: `Your clan already has ${config.teamLimit} member(s) in this event.` });
               return;
             }
 

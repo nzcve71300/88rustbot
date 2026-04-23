@@ -13,6 +13,7 @@ import {
   findInviteByCode,
   getClanSettings,
 } from "../db/clans.js";
+import { refreshActiveClansPanelsForGuild } from "./activeClansPanel.js";
 import {
   buildJoinClanModal,
   JOIN_CLAN_BUTTON_ID,
@@ -124,6 +125,9 @@ export async function handleJoinClanModal(interaction: ModalSubmitInteraction): 
     ],
     ephemeral: true,
   });
+
+  // Best-effort: update tracked /active-clans message(s) immediately.
+  await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});
 }
 
 export const clanJoinCustomIds = {

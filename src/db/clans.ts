@@ -231,10 +231,42 @@ export async function createClan(
 }
 
 export async function deleteClan(pool: Pool, guildRowId: number, clanId: number): Promise<void> {
-  await pool.query<ResultSetHeader>(
-    "DELETE FROM clans WHERE id = :cid AND guild_id = :gid",
-    { cid: clanId, gid: guildRowId }
-  );
+  // Delete is cascaded for `clan_members`, `clan_invites`, and event membership tables via FK constraints.
+  // Some historical tables (ex: kill logs) may not have FK constraints; clean them explicitly so
+  // the clan fully disappears from the command center + leaderboards.
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Best-effort cleanup for any tables that might not be FK-constrained.
+    // If these tables don't exist in a given install, ignore ER_NO_SUCH_TABLE.
+    const ignoreMissingTable = async (sql: string, params: unknown[]) => {
+      try {
+        await conn.query<ResultSetHeader>(sql, params);
+      } catch (e: unknown) {
+        const code = typeof e === "object" && e && "code" in e ? String((e as { code: string }).code) : "";
+        if (code === "ER_NO_SUCH_TABLE") return;
+        throw e;
+      }
+    };
+
+    await ignoreMissingTable("DELETE FROM koth_kills WHERE clan_id = ?", [clanId]);
+    await ignoreMissingTable("DELETE FROM maze_kills WHERE clan_id = ?", [clanId]);
+
+    // Main delete (cascades to members/invites/teams/members etc via FK).
+    await conn.query<ResultSetHeader>("DELETE FROM clans WHERE id = ? AND guild_id = ?", [clanId, guildRowId]);
+
+    await conn.commit();
+  } catch (e) {
+    try {
+      await conn.rollback();
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  } finally {
+    conn.release();
+  }
 }
 
 export async function removeClanMember(

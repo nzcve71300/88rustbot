@@ -7,7 +7,7 @@ import { autocompleteServerOption, validateServerSelection } from "../shared/ser
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { createClanRole, createPrivateClanChannel, ensureClansCategory } from "../../clans/discordAssets.js";
 
-const TAG_RE = /^[A-Za-z]{4}$/;
+const TAG_RE = /^[A-Za-z]{3,5}$/;
 
 /** Embed accent to match the chosen clan theme. */
 const CLAN_THEME_EMBED_COLOR: Record<string, number> = {
@@ -79,10 +79,10 @@ export const clanCreateCommand = {
     .addStringOption((o) =>
       o
         .setName("tag")
-        .setDescription("4-letter clan tag.")
+        .setDescription("Clan tag (3–5 letters).")
         .setRequired(true)
-        .setMinLength(4)
-        .setMaxLength(4)
+        .setMinLength(3)
+        .setMaxLength(5)
     )
     .addStringOption((o) =>
       o
@@ -122,7 +122,7 @@ export const clanCreateCommand = {
     }
     if (!TAG_RE.test(tag)) {
       await interaction.reply({
-        embeds: [baseEmbed().setTitle("Invalid tag").setDescription("Tag must be **exactly 4 letters** (A-Z).")],
+        embeds: [baseEmbed().setTitle("Invalid tag").setDescription("Tag must be **3–5 letters** (A-Z).")],
       });
       return;
     }

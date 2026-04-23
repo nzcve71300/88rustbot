@@ -7,6 +7,7 @@ import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { listRustServersForGuild } from "../../db/rustServers.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
+import { getActiveClansPanel, upsertActiveClansPanel } from "../../db/activeClansPanels.js";
 
 const FIELD_VALUE_MAX = 1020;
 /** Avoid Discord’s 25-fields-per-embed limit; spill into continuation embeds */
@@ -69,7 +70,7 @@ export const activeClansCommand = {
       return;
     }
 
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
 
     const guildRowId = await getOrCreateGuildRow(pool, interaction.guild.id);
     const servers = await listRustServersForGuild(pool, guildRowId);
@@ -145,6 +146,40 @@ export const activeClansCommand = {
       fieldsOnCurrent += 1;
     });
 
-    await interaction.editReply({ embeds });
+    // Update existing tracked message if possible; otherwise send a new one.
+    const existing = await getActiveClansPanel(pool, guildRowId, serverId).catch(() => null);
+    let channelId = existing?.channelId ?? interaction.channelId;
+    let messageId = existing?.messageId ?? null;
+
+    let posted = false;
+    if (messageId) {
+      try {
+        const ch = await interaction.guild.channels.fetch(channelId);
+        if (ch && "messages" in ch) {
+          const msg = await ch.messages.fetch(messageId);
+          await msg.edit({ embeds });
+          posted = true;
+        }
+      } catch {
+        posted = false;
+      }
+    }
+
+    if (!posted) {
+      const panelMessage = await interaction.channel?.send({ embeds }).catch(() => null);
+      if (!panelMessage) {
+        await interaction.editReply({ content: "❌ Could not post the active clans panel. Check bot permissions." });
+        return;
+      }
+      channelId = panelMessage.channelId;
+      messageId = panelMessage.id;
+    }
+
+    if (!messageId) {
+      await interaction.editReply({ content: "❌ Could not determine the active clans message id." });
+      return;
+    }
+    await upsertActiveClansPanel(pool, guildRowId, serverId, channelId, messageId).catch(() => {});
+    await interaction.editReply({ content: `✅ Active clans panel updated in <#${channelId}>.` });
   },
 };

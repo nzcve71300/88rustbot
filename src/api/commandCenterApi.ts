@@ -92,6 +92,7 @@ import {
   promoteClanOwner,
   removeClanMember,
 } from "../db/clans.js";
+import { refreshActiveClansPanelsForGuild } from "../clans/activeClansPanel.js";
 import { createClanRole, createPrivateClanChannel, ensureClansCategory } from "../clans/discordAssets.js";
 import { listRustServersForGuild } from "../db/rustServers.js";
 import { updateKothMessage } from "../koth/announce.js";
@@ -1634,6 +1635,9 @@ export function startCommandCenterApi(client?: Client): void {
           }
 
           json(res, 200, { ok: true, message: `Your clan ${clanName} has been created.`, clanName, tag, color });
+          if (client && guildDiscordId) {
+            await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+          }
           return;
         }
 
@@ -1694,6 +1698,9 @@ export function startCommandCenterApi(client?: Client): void {
             }
           }
           json(res, 200, { ok: true, clanName: inv.clanName });
+          if (client && guildDiscordId) {
+            await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+          }
           return;
         }
 
@@ -1717,6 +1724,9 @@ export function startCommandCenterApi(client?: Client): void {
             }
           }
           json(res, 200, { ok: true, left: true });
+          if (client && guildDiscordId) {
+            await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+          }
           return;
         }
 
@@ -1750,6 +1760,9 @@ export function startCommandCenterApi(client?: Client): void {
             } catch {}
           }
           json(res, 200, { ok: true });
+          if (client && guildDiscordId) {
+            await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+          }
           return;
         }
 
@@ -1794,6 +1807,9 @@ export function startCommandCenterApi(client?: Client): void {
             }
           }
           json(res, 200, { ok: true });
+          if (client && guildDiscordId) {
+            await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+          }
           return;
         }
 

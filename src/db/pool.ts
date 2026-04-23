@@ -106,6 +106,23 @@ export async function ensureSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS active_clans_panels (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        guild_id BIGINT UNSIGNED NOT NULL,
+        rust_server_id BIGINT UNSIGNED NOT NULL,
+        channel_id BIGINT UNSIGNED NOT NULL,
+        message_id BIGINT UNSIGNED NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_active_clans_panel (guild_id, rust_server_id),
+        KEY idx_active_clans_message (message_id),
+        CONSTRAINT fk_active_clans_guild FOREIGN KEY (guild_id) REFERENCES guilds (id) ON DELETE CASCADE,
+        CONSTRAINT fk_active_clans_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // --- lightweight migrations for existing installs ---
     // We avoid failing startup if columns already exist.
     const ignoreDup = async (sql: string) => {
@@ -126,6 +143,9 @@ export async function ensureSchema(): Promise<void> {
     await ignoreDup("ALTER TABLE clans ADD COLUMN discord_role_id BIGINT UNSIGNED NULL");
     await ignoreDup("ALTER TABLE clans ADD COLUMN discord_channel_id BIGINT UNSIGNED NULL");
     await ignoreDup("ALTER TABLE clans ADD UNIQUE KEY uq_clan_tag_per_guild (guild_id, tag)");
+
+    await ignoreDup("ALTER TABLE active_clans_panels ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+    await ignoreDup("ALTER TABLE active_clans_panels ADD UNIQUE KEY uq_active_clans_panel (guild_id, rust_server_id)");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS discord_links (

@@ -4,6 +4,7 @@ import { pool } from "../../db/pool.js";
 import { deleteClan, getMemberClan } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
+import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
 
 export const clanDeleteCommand = {
   data: new SlashCommandBuilder()
@@ -79,6 +80,9 @@ export const clanDeleteCommand = {
     await interaction.editReply({
       embeds: [baseEmbed().setTitle("Clan deleted").setDescription(`**${clan.clanName}** was deleted successfully.`)],
     });
+
+    // Best-effort: update tracked /active-clans message(s).
+    await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});
   },
 };
 

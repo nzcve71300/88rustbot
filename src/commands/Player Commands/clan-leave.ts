@@ -4,6 +4,7 @@ import { pool } from "../../db/pool.js";
 import { getMemberClan, removeClanMember } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
+import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
 
 export const clanLeaveCommand = {
   data: new SlashCommandBuilder()
@@ -73,6 +74,9 @@ export const clanLeaveCommand = {
     await interaction.editReply({
       embeds: [baseEmbed().setTitle("Left clan").setDescription(`You left **${clan.clanName}** successfully.`)],
     });
+
+    // Best-effort: update tracked /active-clans message(s).
+    await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});
   },
 };
 

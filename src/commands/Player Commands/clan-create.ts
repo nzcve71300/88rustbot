@@ -6,6 +6,7 @@ import { getClanSettings, getMemberClan, createClan } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { createClanRole, createPrivateClanChannel, ensureClansCategory } from "../../clans/discordAssets.js";
+import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
 
 const TAG_RE = /^[A-Za-z]{3,5}$/;
 
@@ -223,6 +224,9 @@ export const clanCreateCommand = {
           .setTimestamp(),
       ],
     });
+
+    // Best-effort: update tracked /active-clans message(s).
+    await refreshActiveClansPanelsForGuild(interaction.client, interaction.guild.id).catch(() => {});
   },
 };
 

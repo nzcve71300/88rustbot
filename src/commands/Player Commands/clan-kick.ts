@@ -4,6 +4,7 @@ import { pool } from "../../db/pool.js";
 import { getMemberClan, removeClanMember } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
+import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
 
 export const clanKickCommand = {
   data: new SlashCommandBuilder()
@@ -100,6 +101,9 @@ export const clanKickCommand = {
           .setDescription(`**${target.username}** was kicked from **${myClan.clanName}**.`),
       ],
     });
+
+    // Best-effort: update tracked /active-clans message(s).
+    await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});
   },
 };
 

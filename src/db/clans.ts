@@ -253,6 +253,11 @@ export async function deleteClan(pool: Pool, guildRowId: number, clanId: number)
     await ignoreMissingTable("DELETE FROM koth_kills WHERE clan_id = ?", [clanId]);
     await ignoreMissingTable("DELETE FROM maze_kills WHERE clan_id = ?", [clanId]);
 
+    // Back-compat: older installs might not have FK cascades set up correctly.
+    // Ensure membership/invites are removed so leaderboard/active lists can't keep ghost clans.
+    await ignoreMissingTable("DELETE FROM clan_members WHERE clan_id = ?", [clanId]);
+    await ignoreMissingTable("DELETE FROM clan_invites WHERE clan_id = ?", [clanId]);
+
     // Main delete (cascades to members/invites/teams/members etc via FK).
     await conn.query<ResultSetHeader>("DELETE FROM clans WHERE id = ? AND guild_id = ?", [clanId, guildRowId]);
 

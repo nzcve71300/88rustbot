@@ -65,10 +65,11 @@ async function buildActiveClansEmbeds(guild: Guild, rustServerId: number): Promi
   }
 
   const lines = clans.map((c) => {
-    const safeName = c.clanName.slice(0, 180);
-    const tag = c.clanTag?.trim() || "—";
-    const tagPart = tag === "—" ? "`—`" : `\`[${tag.slice(0, 5)}]\``;
-    return `${tagPart} **${safeName}** · ${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`;
+    const rid = c.discordRoleId?.trim() ? `<@&${c.discordRoleId.trim()}>` : "`(role missing)`";
+    const tagRaw = (c.clanTag?.trim() || "—").slice(0, 8);
+    const tagPart = `[**${tagRaw}**]`;
+    const membersWord = c.memberCount === 1 ? "member" : "members";
+    return `${rid} ${tagPart} - ${c.memberCount} ${membersWord}`;
   });
 
   const lineChunks = chunkLines(lines, FIELD_VALUE_MAX);
@@ -89,7 +90,7 @@ async function buildActiveClansEmbeds(guild: Guild, rustServerId: number): Promi
     const fieldName = totalParts === 1 ? "Clan roster" : `Clan roster · part ${i + 1}/${totalParts}`;
     current.addFields({
       name: fieldName,
-      value: chunkLines_.join("\n"),
+      value: chunkLines_.join("\n\n"),
       inline: false,
     });
     fieldsOnCurrent += 1;

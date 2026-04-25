@@ -87,7 +87,18 @@ export async function findInviteByCode(
 
 export async function countClanMembers(pool: Pool, clanId: number): Promise<number> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT COUNT(*) AS c FROM clan_members WHERE clan_id = :cid",
+    `
+    SELECT COUNT(DISTINCT uid) AS c
+    FROM (
+      SELECT CAST(cm.discord_user_id AS CHAR) AS uid
+      FROM clan_members cm
+      WHERE cm.clan_id = :cid
+      UNION
+      SELECT CAST(c.owner_discord_user_id AS CHAR) AS uid
+      FROM clans c
+      WHERE c.id = :cid
+    ) u
+    `,
     { cid: clanId }
   );
   return Number((rows[0] as { c: number }).c);
@@ -96,10 +107,20 @@ export async function countClanMembers(pool: Pool, clanId: number): Promise<numb
 /** All Discord user IDs in a clan (as strings). */
 export async function listClanMemberDiscordUserIds(pool: Pool, clanId: number): Promise<string[]> {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT CAST(discord_user_id AS CHAR) AS uid
-     FROM clan_members
-     WHERE clan_id = :cid
-     ORDER BY joined_at ASC`,
+    `
+    SELECT uid FROM (
+      SELECT CAST(cm.discord_user_id AS CHAR) AS uid, cm.joined_at AS joinedAt, 0 AS isOwner
+      FROM clan_members cm
+      WHERE cm.clan_id = :cid
+      UNION
+      SELECT CAST(c.owner_discord_user_id AS CHAR) AS uid, NULL AS joinedAt, 1 AS isOwner
+      FROM clans c
+      WHERE c.id = :cid
+    ) u
+    WHERE uid IS NOT NULL AND uid <> ''
+    GROUP BY uid
+    ORDER BY MAX(isOwner) DESC, MIN(joinedAt) ASC
+    `,
     { cid: clanId }
   );
   return (rows as { uid: string }[]).map((r) => String(r.uid));
@@ -156,7 +177,28 @@ export async function getMemberClan(
     { gid: guildRowId, uid: discordUserId }
   );
   const r = rows[0] as MemberClanInfo | undefined;
-  return r ?? null;
+  if (r) return r;
+
+  // Back-compat: if a historical clan is missing an owner row in `clan_members`,
+  // owners should still be treated as clan members for commands and panels.
+  const [rows2] = await pool.query<RowDataPacket[]>(
+    `
+    SELECT
+      c.id AS clanId,
+      c.name AS clanName,
+      c.tag AS clanTag,
+      c.color AS clanColor,
+      CAST(c.owner_discord_user_id AS CHAR) AS ownerDiscordUserId,
+      CAST(c.discord_role_id AS CHAR) AS discordRoleId,
+      CAST(c.discord_channel_id AS CHAR) AS discordChannelId
+    FROM clans c
+    WHERE c.guild_id = :gid AND CAST(c.owner_discord_user_id AS CHAR) = :uid
+    LIMIT 1
+    `,
+    { gid: guildRowId, uid: String(discordUserId) }
+  );
+  const r2 = rows2[0] as MemberClanInfo | undefined;
+  return r2 ?? null;
 }
 
 /** Clan member, or clan owner (for events that allow owners without a member row). */
@@ -334,8 +376,10 @@ export async function deleteExpiredInvites(pool: Pool): Promise<number> {
 }
 
 export type GuildClanListRow = {
+  clanId: number;
   clanName: string;
   clanTag: string | null;
+  discordRoleId: string | null;
   memberCount: number;
 };
 
@@ -350,20 +394,30 @@ export async function listGuildClansWithMemberCounts(
   const [rows] = await pool.query<RowDataPacket[]>(
     `
     SELECT
+      c.id AS clanId,
       c.name AS clanName,
       c.tag AS clanTag,
-      COUNT(cm.discord_user_id) AS memberCount
+      CAST(c.discord_role_id AS CHAR) AS discordRoleId,
+      COUNT(DISTINCT u.uid) AS memberCount
     FROM clans c
-    LEFT JOIN clan_members cm ON cm.clan_id = c.id
+    LEFT JOIN (
+      SELECT cm.clan_id AS clanId, CAST(cm.discord_user_id AS CHAR) AS uid
+      FROM clan_members cm
+      UNION
+      SELECT c2.id AS clanId, CAST(c2.owner_discord_user_id AS CHAR) AS uid
+      FROM clans c2
+    ) u ON u.clanId = c.id
     WHERE c.guild_id = :gid
-    GROUP BY c.id, c.name, c.tag
-    ORDER BY c.name ASC
+    GROUP BY c.id, c.name, c.tag, c.discord_role_id
+    ORDER BY memberCount DESC, c.name ASC
     `,
     { gid: guildRowId }
   );
   return rows.map((r) => ({
+    clanId: Number((r as { clanId: unknown }).clanId ?? 0),
     clanName: String((r as { clanName: unknown }).clanName ?? ""),
     clanTag: (r as { clanTag: unknown }).clanTag != null ? String((r as { clanTag: unknown }).clanTag) : null,
+    discordRoleId: (r as { discordRoleId: unknown }).discordRoleId != null ? String((r as { discordRoleId: unknown }).discordRoleId) : null,
     memberCount: Number((r as { memberCount: unknown }).memberCount ?? 0),
   }));
 }

@@ -58,14 +58,22 @@ export const clanStatsCommand = {
 
     const [rows] = await pool.query(
       `SELECT l.ingame_name AS ingameName,
-              CAST(m.discord_user_id AS CHAR) AS discordUserId,
+              CAST(u.discord_user_id AS CHAR) AS discordUserId,
               COALESCE(k.kills, 0) AS kills,
               COALESCE(k.deaths, 0) AS deaths
-       FROM clan_members m
-       JOIN discord_links l ON l.guild_id = :gid AND l.discord_user_id = m.discord_user_id
+       FROM (
+         SELECT CAST(cm.discord_user_id AS CHAR) AS discord_user_id
+         FROM clan_members cm
+         WHERE cm.clan_id = :cid
+         UNION
+         SELECT CAST(c.owner_discord_user_id AS CHAR) AS discord_user_id
+         FROM clans c
+         WHERE c.id = :cid
+       ) u
+       JOIN discord_links l ON l.guild_id = :gid AND CAST(l.discord_user_id AS CHAR) = u.discord_user_id
        LEFT JOIN rust_player_kd k
          ON k.guild_id = :gid AND k.rust_server_id = :sid AND LOWER(TRIM(k.ingame_name)) = LOWER(TRIM(l.ingame_name))
-       WHERE m.clan_id = :cid`,
+       `,
       { gid: guildRowId, sid: serverId, cid: clan.clanId }
     );
 

@@ -21,7 +21,9 @@ import {
 } from "../db/maze.js";
 import { getRustServerByIdForGuild, listRustServersForGuild } from "../db/rustServers.js";
 import { notifyGuildWebPush } from "../push/webPushNotify.js";
+import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateMazeMessage } from "./announce.js";
+import { renderMazeEmbed } from "./render.js";
 import { runMazeEvent } from "./runner.js";
 
 const LOBBY_MAX_MINUTES = 15;
@@ -136,16 +138,24 @@ async function openAutomatedMazeLobby(pool: Pool, client: Client, guildRowId: nu
 
   const views = await listMazeSpawnViews(pool, guildRowId, lobby.eventId);
   const meta = await getActiveMazeEventMeta(pool, guildRowId, rustServerId);
-  await updateMazeMessage(
-    client,
-    cfg.announcementChannelId,
-    cfg.messageId,
-    serverName,
-    serverName,
-    views,
-    cfg.durationMinutes ?? null,
-    meta?.lobbyEndsAtMs ?? null
-  );
+  const lobbyEndsAtMs = meta?.lobbyEndsAtMs ?? null;
+  const durationMinutes = cfg.durationMinutes ?? null;
+  const panelEmbed = renderMazeEmbed(serverName, serverName, views, durationMinutes, lobbyEndsAtMs);
+  try {
+    await updateMazeMessage(
+      client,
+      cfg.announcementChannelId,
+      cfg.messageId,
+      serverName,
+      serverName,
+      views,
+      durationMinutes,
+      lobbyEndsAtMs
+    );
+  } catch (e) {
+    console.error("[maze-automation] updateMazeMessage failed:", e);
+  }
+  await sendAutomatedLobbyOpenPing(client, cfg.announcementChannelId, cfg.announcementRoleId, panelEmbed);
 
   void notifyGuildWebPush(pool, guildRowId, rustServerId, {
     title: "Grindset",

@@ -98,9 +98,11 @@ export const kothLeaveCommand = {
     const views = await listGateViews(pool, eventId);
     const meta = await getActiveKothEventMeta(pool, guildRowId, serverId);
     const countdownEndsAtMs =
-      meta?.status === "running" && meta.waveStartedAtMs != null && meta.durationPerWaveMin != null
-        ? meta.waveStartedAtMs + meta.durationPerWaveMin * 60_000
-        : null;
+      meta?.status === "lobby"
+        ? meta.lobbyEndsAtMs ?? null
+        : meta?.status === "running" && meta.waveStartedAtMs != null && meta.durationPerWaveMin != null
+          ? meta.waveStartedAtMs + meta.durationPerWaveMin * 60_000
+          : null;
     await updateKothMessage(
       interaction.client,
       config.announcementChannelId,

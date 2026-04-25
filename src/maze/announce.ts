@@ -15,6 +15,14 @@ export async function updateMazeMessage(
   const channel = await client.channels.fetch(announcementChannelId);
   if (!channel || !channel.isTextBased() || !("messages" in channel)) return;
   const msg = await channel.messages.fetch(messageId).catch(() => null);
-  if (!msg) return;
-  await msg.edit({ embeds: [renderMazeEmbed(serverName, serverNickname, spawns, durationMinutes, countdownEndsAtMs)] });
+  if (!msg) {
+    console.warn("[maze-announce] message not found for edit", { channelId: announcementChannelId, messageId });
+    return;
+  }
+  try {
+    await msg.edit({ embeds: [renderMazeEmbed(serverName, serverNickname, spawns, durationMinutes, countdownEndsAtMs)] });
+  } catch (e) {
+    console.error("[maze-announce] message edit failed:", e);
+    throw e;
+  }
 }

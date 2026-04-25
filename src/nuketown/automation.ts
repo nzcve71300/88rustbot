@@ -14,7 +14,9 @@ import {
 } from "../db/nuketown.js";
 import { getRustServerByIdForGuild, listRustServersForGuild } from "../db/rustServers.js";
 import { notifyGuildWebPush } from "../push/webPushNotify.js";
+import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateNuketownMessage } from "./announce.js";
+import { renderNuketownEmbed } from "./render.js";
 import { runNuketownBracket } from "./runner.js";
 
 const LOBBY_MAX_MINUTES = 15;
@@ -82,18 +84,35 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
 
   // Initial message update with countdown + mode label
   const meta = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);
-  await updateNuketownMessage(
-    client,
-    cfg.announcementChannelId,
-    cfg.messageId,
+  const lobbyEndsAtMs = meta?.lobbyEndsAtMs ?? null;
+  const modeLabel = mode === "tournament" ? "tournament" : "nuketown";
+  const eventNo = meta?.id ?? lobby.eventId;
+  const panelEmbed = renderNuketownEmbed(
     serverName,
     serverName,
     [],
-    meta?.lobbyEndsAtMs ?? null,
+    lobbyEndsAtMs,
     cfg.teamLimit,
-    mode === "tournament" ? "tournament" : "nuketown",
-    meta?.id ?? lobby.eventId
+    modeLabel,
+    eventNo
   );
+  try {
+    await updateNuketownMessage(
+      client,
+      cfg.announcementChannelId,
+      cfg.messageId,
+      serverName,
+      serverName,
+      [],
+      lobbyEndsAtMs,
+      cfg.teamLimit,
+      modeLabel,
+      eventNo
+    );
+  } catch (e) {
+    console.error("[nuketown-automation] updateNuketownMessage failed:", e);
+  }
+  await sendAutomatedLobbyOpenPing(client, cfg.announcementChannelId, cfg.announcementRoleId, panelEmbed);
 
   void notifyGuildWebPush(pool, guildRowId, rustServerId, {
     title: "Grindset",

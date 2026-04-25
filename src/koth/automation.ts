@@ -22,7 +22,9 @@ import {
 import { getRustServerByIdForGuild } from "../db/rustServers.js";
 import { listRustServersForGuild } from "../db/rustServers.js";
 import { notifyGuildWebPush } from "../push/webPushNotify.js";
+import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateKothMessage } from "./announce.js";
+import { renderKothEmbed } from "./render.js";
 import { parseGateCoordTriple, runKothWaves } from "./runner.js";
 
 const LOBBY_MAX_MINUTES = 5;
@@ -159,16 +161,26 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
   const serverName = srv?.nickname ?? "Server";
 
   const views = await listGateViews(pool, lobby.eventId);
-  await updateKothMessage(
-    client,
-    cfg.announcementChannelId,
-    cfg.messageId,
-    serverName,
-    serverName,
-    views.map((g) => ({ gateNumber: g.gateNumber, clanName: g.clanName, members: g.members })),
-    lobby.eventId,
-    (await getActiveKothEventMeta(pool, guildRowId, rustServerId))?.lobbyEndsAtMs ?? null
-  );
+  const meta = await getActiveKothEventMeta(pool, guildRowId, rustServerId);
+  const lobbyEndsAtMs = meta?.lobbyEndsAtMs ?? null;
+  const gateViews = views.map((g) => ({ gateNumber: g.gateNumber, clanName: g.clanName, members: g.members }));
+  const eventNo = meta?.id ?? lobby.eventId;
+  const panelEmbed = renderKothEmbed(serverName, serverName, gateViews, eventNo, lobbyEndsAtMs);
+  try {
+    await updateKothMessage(
+      client,
+      cfg.announcementChannelId,
+      cfg.messageId,
+      serverName,
+      serverName,
+      gateViews,
+      eventNo,
+      lobbyEndsAtMs
+    );
+  } catch (e) {
+    console.error("[koth-automation] updateKothMessage failed:", e);
+  }
+  await sendAutomatedLobbyOpenPing(client, cfg.announcementChannelId, cfg.announcementRoleId, panelEmbed);
 
   void notifyGuildWebPush(pool, guildRowId, rustServerId, {
     title: "Grindset",

@@ -135,9 +135,11 @@ export const mazeJoinCommand = {
     const meta = await getActiveMazeEventMeta(pool, guildRowId, serverId);
     const durationMinutes = meta?.durationMinutes ?? null;
     const countdownEndsAtMs =
-      meta?.startedAtMs != null && meta?.durationMinutes != null
-        ? meta.startedAtMs + meta.durationMinutes * 60_000
-        : null;
+      meta?.status === "lobby"
+        ? meta.lobbyEndsAtMs ?? null
+        : meta?.startedAtMs != null && meta?.durationMinutes != null
+          ? meta.startedAtMs + meta.durationMinutes * 60_000
+          : null;
     await updateMazeMessage(
       interaction.client,
       config.announcementChannelId,

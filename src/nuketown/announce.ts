@@ -16,9 +16,17 @@ export async function updateNuketownMessage(
   const channel = await client.channels.fetch(announcementChannelId);
   if (!channel || !channel.isTextBased() || !("messages" in channel)) return;
   const msg = await channel.messages.fetch(messageId).catch(() => null);
-  if (!msg) return;
-  await msg.edit({
-    embeds: [renderNuketownEmbed(serverName, serverNickname, teams, lobbyEndsAtMs, teamLimit, mode ?? null, eventNumber)],
-  });
+  if (!msg) {
+    console.warn("[nuketown-announce] message not found for edit", { channelId: announcementChannelId, messageId });
+    return;
+  }
+  try {
+    await msg.edit({
+      embeds: [renderNuketownEmbed(serverName, serverNickname, teams, lobbyEndsAtMs, teamLimit, mode ?? null, eventNumber)],
+    });
+  } catch (e) {
+    console.error("[nuketown-announce] message edit failed:", e);
+    throw e;
+  }
 }
 

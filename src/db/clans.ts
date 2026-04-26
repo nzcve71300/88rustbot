@@ -384,6 +384,30 @@ export type GuildClanListRow = {
 };
 
 /**
+ * Distinct Discord users in a clan: `clan_members` plus owner (same rules as `listGuildClansWithMemberCounts`).
+ * Does not require a Rust `discord_links` row.
+ */
+export async function getClanMemberCount(pool: Pool, clanId: number): Promise<number> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `
+    SELECT COUNT(DISTINCT u.uid) AS memberCount
+    FROM (
+      SELECT CAST(cm.discord_user_id AS CHAR) AS uid
+      FROM clan_members cm
+      WHERE cm.clan_id = :cid
+      UNION
+      SELECT CAST(c.owner_discord_user_id AS CHAR) AS uid
+      FROM clans c
+      WHERE c.id = :cid
+    ) u
+    `,
+    { cid: clanId }
+  );
+  const n = Number((rows[0] as { memberCount?: unknown } | undefined)?.memberCount ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
  * All clans in a Discord guild with member counts (clans are guild-scoped; there is no per–Rust-server clan row).
  * Ordered by clan name.
  */

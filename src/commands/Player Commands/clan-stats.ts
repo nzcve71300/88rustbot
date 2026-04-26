@@ -2,7 +2,7 @@ import { type ChatInputCommandInteraction, SlashCommandBuilder } from "discord.j
 import { baseEmbed } from "../../embeds/standard.js";
 import { pool } from "../../db/pool.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
-import { getClanSettings, getMemberClan } from "../../db/clans.js";
+import { getClanMemberCount, getClanSettings, getMemberClan } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 
 function kdRatio(kills: number, deaths: number): string {
@@ -83,6 +83,7 @@ export const clanStatsCommand = {
       kills: Number(r.kills),
       deaths: Number(r.deaths),
     }));
+    const memberCount = await getClanMemberCount(pool, clan.clanId);
     const totalKills = list.reduce((s, x) => s + x.kills, 0);
     const totalDeaths = list.reduce((s, x) => s + x.deaths, 0);
     const top3 = [...list].sort((a, b) => b.kills - a.kills).slice(0, 3);
@@ -96,21 +97,26 @@ export const clanStatsCommand = {
           .join("\n")
       : "_No kills recorded yet._";
 
+    const descLines = [
+      `**Members:** ${memberCount}`,
+      ...(list.length < memberCount
+        ? [
+            `_KD stats below include **${list.length}** member(s) with a linked Rust profile on this server._`,
+          ]
+        : []),
+      `**Total Kills:** ${totalKills}`,
+      `**Total Deaths:** ${totalDeaths}`,
+      `**KD Ratio:** ${kdRatio(totalKills, totalDeaths)}`,
+      "",
+      "🏆 **Top 3 Players**",
+      podiumLines,
+    ];
+
     await interaction.editReply({
       embeds: [
         baseEmbed()
           .setTitle(`Clan Stats — ${clan.clanName}`)
-          .setDescription(
-            [
-              `**Members:** ${list.length}`,
-              `**Total Kills:** ${totalKills}`,
-              `**Total Deaths:** ${totalDeaths}`,
-              `**KD Ratio:** ${kdRatio(totalKills, totalDeaths)}`,
-              "",
-              "🏆 **Top 3 Players**",
-              podiumLines,
-            ].join("\n")
-          ),
+          .setDescription(descLines.join("\n")),
       ],
     });
   },

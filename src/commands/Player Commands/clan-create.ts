@@ -3,6 +3,7 @@ import { baseEmbed } from "../../embeds/standard.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { getClanSettings, getMemberClan, createClan } from "../../db/clans.js";
+import { getLinkByDiscordUser } from "../../db/links.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { createClanRole, createPrivateClanChannel, ensureClansCategory } from "../../clans/discordAssets.js";
@@ -133,6 +134,14 @@ export const clanCreateCommand = {
     const guard = await ensureClanSystemEnabled(interaction);
     if (!guard.ok) return;
     const guildRowId = guard.guildRowId;
+
+    const link = await getLinkByDiscordUser(pool, guildRowId, interaction.user.id);
+    if (!link) {
+      await interaction.editReply({
+        embeds: [baseEmbed().setTitle("Not linked").setDescription("Use `/link` first before creating a clan.")],
+      });
+      return;
+    }
 
     const existing = await getMemberClan(pool, guildRowId, interaction.user.id);
     if (existing) {

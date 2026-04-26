@@ -6,6 +6,7 @@ import { ADMIN_ROLE_NAME } from "../constants.js";
 import { getOrCreateGuildRow } from "../db/guilds.js";
 import { pool } from "../db/pool.js";
 import { baseEmbed } from "../embeds/standard.js";
+import { getLinkByDiscordUser } from "../db/links.js";
 import {
   addClanMember,
   countClanMembers,
@@ -65,6 +66,15 @@ export async function handleJoinClanModal(interaction: ModalSubmitInteraction): 
   if (!settings.enabled) {
     await interaction.reply({
       embeds: [baseEmbed().setTitle("Clan system disabled").setDescription(`Ask an **${ADMIN_ROLE_NAME}** to enable it.`)],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const link = await getLinkByDiscordUser(pool, guildRowId, interaction.user.id);
+  if (!link) {
+    await interaction.reply({
+      embeds: [baseEmbed().setTitle("Not linked").setDescription("Use `/link` first before joining a clan.")],
       ephemeral: true,
     });
     return;

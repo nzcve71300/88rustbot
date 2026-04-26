@@ -82,19 +82,9 @@ export const activeClansCommand = {
       return;
     }
 
-    // For accurate per-clan role membership counts, ensure members are cached.
-    // This is admin-only and on-demand, so it's acceptable to fetch here.
-    await interaction.guild.members.fetch().catch(() => null);
-
     const clans = await listGuildClansWithMemberCounts(pool, guildRowId);
     const totalClans = clans.length;
-    const clansWithDisplayCounts = clans.map((c) => {
-      const roleId = c.discordRoleId?.trim() ? c.discordRoleId.trim() : null;
-      const roleCount = roleId ? interaction.guild!.roles.cache.get(roleId)?.members.size : undefined;
-      const displayCount = typeof roleCount === "number" ? roleCount : c.memberCount;
-      return { ...c, displayCount };
-    });
-    const totalMembers = clansWithDisplayCounts.reduce((s, c) => s + c.displayCount, 0);
+    const totalMembers = clans.reduce((s, c) => s + c.memberCount, 0);
 
     const title = `ACTIVE CLANS ON ${srv.nickname}`.slice(0, 256);
     const icon = interaction.guild.iconURL({ size: 128 });
@@ -125,12 +115,12 @@ export const activeClansCommand = {
       return;
     }
 
-    const lines = clansWithDisplayCounts.map((c) => {
+    const lines = clans.map((c) => {
       const rid = c.discordRoleId?.trim() ? `<@&${c.discordRoleId.trim()}>` : "`(role missing)`";
       const tagRaw = (c.clanTag?.trim() || "—").slice(0, 8);
       const tagPart = `[**${tagRaw}**]`;
-      const membersWord = c.displayCount === 1 ? "member" : "members";
-      return `${rid} ${tagPart} - ${c.displayCount} ${membersWord}`;
+      const membersWord = c.memberCount === 1 ? "member" : "members";
+      return `${rid} ${tagPart} - ${c.memberCount} ${membersWord}`;
     });
 
     const lineChunks = chunkLines(lines, FIELD_VALUE_MAX);

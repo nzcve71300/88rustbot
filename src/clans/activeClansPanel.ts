@@ -35,9 +35,21 @@ async function buildActiveClansEmbeds(guild: Guild, rustServerId: number): Promi
   const srv = servers.find((s) => String(s.id) === String(rustServerId));
   const nickname = srv?.nickname || "Unknown server";
 
+  // Best-effort: for small/medium guilds, fetch members so role membership counts are accurate.
+  // Avoid doing this for very large guilds on every refresh.
+  if ((guild.memberCount ?? 0) > 0 && (guild.memberCount ?? 0) <= 1500) {
+    await guild.members.fetch().catch(() => null);
+  }
+
   const clans = await listGuildClansWithMemberCounts(pool, guildRowId);
   const totalClans = clans.length;
-  const totalMembers = clans.reduce((s, c) => s + c.memberCount, 0);
+  const clansWithDisplayCounts = clans.map((c) => {
+    const roleId = c.discordRoleId?.trim() ? c.discordRoleId.trim() : null;
+    const roleCount = roleId ? guild.roles.cache.get(roleId)?.members.size : undefined;
+    const displayCount = typeof roleCount === "number" ? roleCount : c.memberCount;
+    return { ...c, displayCount };
+  });
+  const totalMembers = clansWithDisplayCounts.reduce((s, c) => s + c.displayCount, 0);
 
   const title = `ACTIVE CLANS ON ${nickname}`.slice(0, 256);
   const icon = guild.iconURL({ size: 128 }) ?? undefined;
@@ -64,12 +76,12 @@ async function buildActiveClansEmbeds(guild: Guild, rustServerId: number): Promi
     return [embed];
   }
 
-  const lines = clans.map((c) => {
+  const lines = clansWithDisplayCounts.map((c) => {
     const rid = c.discordRoleId?.trim() ? `<@&${c.discordRoleId.trim()}>` : "`(role missing)`";
     const tagRaw = (c.clanTag?.trim() || "—").slice(0, 8);
     const tagPart = `[**${tagRaw}**]`;
-    const membersWord = c.memberCount === 1 ? "member" : "members";
-    return `${rid} ${tagPart} - ${c.memberCount} ${membersWord}`;
+    const membersWord = c.displayCount === 1 ? "member" : "members";
+    return `${rid} ${tagPart} - ${c.displayCount} ${membersWord}`;
   });
 
   const lineChunks = chunkLines(lines, FIELD_VALUE_MAX);

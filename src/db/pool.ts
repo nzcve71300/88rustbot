@@ -113,6 +113,7 @@ export async function ensureSchema(): Promise<void> {
         rust_server_id BIGINT UNSIGNED NOT NULL,
         channel_id BIGINT UNSIGNED NOT NULL,
         message_id BIGINT UNSIGNED NOT NULL,
+        extra_message_ids JSON NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -146,6 +147,7 @@ export async function ensureSchema(): Promise<void> {
 
     await ignoreDup("ALTER TABLE active_clans_panels ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
     await ignoreDup("ALTER TABLE active_clans_panels ADD UNIQUE KEY uq_active_clans_panel (guild_id, rust_server_id)");
+    await ignoreDup("ALTER TABLE active_clans_panels ADD COLUMN extra_message_ids JSON NULL");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS discord_links (

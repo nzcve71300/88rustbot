@@ -1,4 +1,8 @@
-import { type ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
+import {
+  type ChatInputCommandInteraction,
+  MessageFlags,
+  SlashCommandBuilder,
+} from "discord.js";
 import type { TextChannel } from "discord.js";
 import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
@@ -28,13 +32,13 @@ export const activeClansCommand = {
 
   async execute(interaction: ChatInputCommandInteraction) {
     if (!interaction.inGuild() || !interaction.guild || !interaction.member) {
-      await interaction.reply({ content: "This command can only be used inside a server.", ephemeral: true });
+      await interaction.reply({ content: "This command can only be used inside a server.", flags: MessageFlags.Ephemeral });
       return;
     }
     if (!memberHasAdminRole(interaction.member, interaction.guild)) {
       await interaction.reply({
         content: `You need the **${ADMIN_ROLE_NAME}** role to use this command.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -43,12 +47,12 @@ export const activeClansCommand = {
     if (!Number.isFinite(serverId) || !(await validateServerSelection(interaction.guild.id, serverId))) {
       await interaction.reply({
         embeds: [baseEmbed().setTitle("Invalid server").setDescription("Pick a Rust server from the list.")],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guildRowId = await getOrCreateGuildRow(pool, interaction.guild.id);
     const servers = await listRustServersForGuild(pool, guildRowId);

@@ -19,12 +19,16 @@ const MAX_FIELDS_PER_EMBED = 4;
 /** Discord allows at most 10 embeds per message */
 const MAX_EMBEDS_PER_MESSAGE = 10;
 
+/** Join lines with this separator (must match `chunkLines` accounting). */
+const LINE_JOIN = "\n\n";
+
 function chunkLines(lines: string[], maxLen: number): string[][] {
+  const sepLen = LINE_JOIN.length;
   const chunks: string[][] = [];
   let cur: string[] = [];
   let len = 0;
   for (const line of lines) {
-    const add = line.length + (cur.length ? 1 : 0);
+    const add = line.length + (cur.length ? sepLen : 0);
     if (cur.length && len + add > maxLen) {
       chunks.push(cur);
       cur = [line];
@@ -109,7 +113,7 @@ async function buildActiveClansEmbedsFlat(guild: Guild, rustServerId: number): P
     const fieldName = totalParts === 1 ? "Clan roster" : `Clan roster · part ${i + 1}/${totalParts}`;
     current.addFields({
       name: fieldName,
-      value: chunkLines_.join("\n\n"),
+      value: chunkLines_.join(LINE_JOIN),
       inline: false,
     });
     fieldsOnCurrent += 1;

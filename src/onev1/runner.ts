@@ -128,7 +128,7 @@ function zonesCreateCustomZoneCmd(zoneName: string): string {
 
 function zonesEditEnterMessageCmd(zoneName: string, n: 1 | 2 | 3): string {
   // IMPORTANT: do not change spaces in the message string; only the number varies.
-  const msg = `<b><size=55><color=#00ffff>                                                    ${n}</color></size></b>`;
+  const msg = `<b><size=55><color=#8b0000>                                                    ${n}</color></size></b>`;
   return `zones.editcustomzone "${quoteForRconArg(zoneName)}" entermessage "${msg}"`;
 }
 
@@ -572,11 +572,16 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
           gate2Coord: gate2,
           zoneNameGate1: challengerIngame,
           zoneNameGate2: opponentIngame,
-          createZones: round === 1,
+          // Create fresh zones each round so the 3→2→1 is clean.
+          createZones: true,
         },
         signal
       );
       if (zoneCountdown.createdZones) countdownZonesCreated = true;
+
+      // Must be deleted when doors open so the next round can create new zones cleanly.
+      // Deleting immediately before the RF door open avoids "1,3,2,1" carryover.
+      await deleteCountdownZonesIfCreated();
       await openThenCloseDoors(rustServerId, host, port, password, gateFrequency, bcXyz);
 
       const winnerSide = await onev1KillTracker.waitForRoundWinner(rustServerId);

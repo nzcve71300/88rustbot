@@ -163,6 +163,9 @@ class MazeKillTracker {
   private lastMazeVictimDeathAt = new Map<string, number>();
   /** `${rustServerId}:${discordUserId}` → last maze-respawn spawn slot (1..N) so the next respawn picks a different random point when N > 1. */
   private lastRespawnSpawnByPlayer = new Map<string, number>();
+  /** `${rustServerId}:${discordUserId}` → last time we issued a maze respawn teleport for this player (dedupe). */
+  private lastRespawnTeleportAt = new Map<string, number>();
+  private static readonly RESPAWN_TELEPORT_DEDUPE_MS = 12_000;
 
   register(
     rustServerId: number,
@@ -233,6 +236,9 @@ class MazeKillTracker {
     }
     for (const key of [...this.lastRespawnSpawnByPlayer.keys()]) {
       if (key.startsWith(prefix)) this.lastRespawnSpawnByPlayer.delete(key);
+    }
+    for (const key of [...this.lastRespawnTeleportAt.keys()]) {
+      if (key.startsWith(prefix)) this.lastRespawnTeleportAt.delete(key);
     }
   }
 
@@ -358,6 +364,11 @@ class MazeKillTracker {
         if (!this.pendingRespawn.has(dk)) {
           const deathAt = this.lastMazeVictimDeathAt.get(dk);
           if (deathAt != null && now - deathAt <= MAZE_DEATH_CLOCK_MS) {
+            const lastTp = this.lastRespawnTeleportAt.get(dk);
+            if (lastTp != null && now - lastTp < MazeKillTracker.RESPAWN_TELEPORT_DEDUPE_MS) {
+              if (mazeRespawnDebug()) console.log(`[maze respawn] dedupe (death-clock) for ${row.ingameName}`);
+              return;
+            }
             this.lastMazeVictimDeathAt.delete(dk);
             this.enterGameBeforeKill.delete(dk);
             console.log(`[maze] respawn: death-clock fallback for ${row.ingameName} (${MAZE_DEATH_CLOCK_MS / 1000}s after kill)`);
@@ -378,6 +389,7 @@ class MazeKillTracker {
               signal: a.abortSignal,
             });
             if (usedSlot != null) this.lastRespawnSpawnByPlayer.set(dkTrack, usedSlot);
+            this.lastRespawnTeleportAt.set(dkTrack, Date.now());
             return;
           }
         }
@@ -417,6 +429,16 @@ class MazeKillTracker {
     const a = this.byServer.get(rustServerId);
     if (!a?.respawnEnabled) return;
 
+    const now = Date.now();
+    const lastTp = this.lastRespawnTeleportAt.get(key);
+    if (lastTp != null && now - lastTp < MazeKillTracker.RESPAWN_TELEPORT_DEDUPE_MS) {
+      if (mazeRespawnDebug()) console.log(`[maze respawn] dedupe for ${pr.victimRow.ingameName}`);
+      if (pr.reminderInterval) clearInterval(pr.reminderInterval);
+      this.pendingRespawn.delete(key);
+      this.lastMazeVictimDeathAt.delete(key);
+      return;
+    }
+
     if (pr.reminderInterval) clearInterval(pr.reminderInterval);
     this.pendingRespawn.delete(key);
     this.lastMazeVictimDeathAt.delete(key);
@@ -443,6 +465,7 @@ class MazeKillTracker {
       signal: a.abortSignal,
     });
     if (usedSlot != null) this.lastRespawnSpawnByPlayer.set(trackKey, usedSlot);
+    this.lastRespawnTeleportAt.set(trackKey, Date.now());
   }
 
   private async queuePendingRespawn(rustServerId: number, victimRow: MazeRosterKillRow): Promise<void> {

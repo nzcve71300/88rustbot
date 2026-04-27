@@ -556,3 +556,157 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
   }
 }
 
+/**
+ * Normal Nuketown mode (not tournament):
+ * - Exactly 2 clans
+ * - No bracket JSON updates (website shouldn't show bracket UI)
+ * - Still uses the configured gate slots + RF broadcaster.
+ */
+export async function runNuketownDuel(args: NuketownRunnerArgs): Promise<void> {
+  const {
+    client,
+    pool,
+    guildRowId,
+    rustServerId,
+    eventId,
+    announcementChannelId,
+    serverNickname,
+    host,
+    port,
+    password,
+    kitName,
+    gateFrequency,
+  } = args;
+
+  const abort = new AbortController();
+  running.set(rustServerId, { rustServerId, eventId, abort });
+  nuketownKillTracker.register(rustServerId, { guildRowId, rustServerId, abortSignal: abort.signal });
+
+  try {
+    const teams = await listNuketownTeams(pool, eventId);
+    if (teams.length !== 2) {
+      throw new Error(`Normal Nuketown requires exactly 2 clans (got ${teams.length}).`);
+    }
+
+    const participants = await listNuketownParticipants(pool, guildRowId, eventId);
+    const slotMap = new Map<number, number>();
+    for (const t of teams) slotMap.set(t.clanId, t.slot);
+    const slots = teams.map((t) => t.slot).sort((a, b) => a - b);
+    const aSlot = slots[0]!;
+    const bSlot = slots[1]!;
+
+    let scoreA = 0;
+    let scoreB = 0;
+
+    for (let round = 1; round <= 3; round++) {
+      if (abort.signal.aborted) throw new Error("Nuketown aborted");
+
+      await postInfo(
+        client,
+        announcementChannelId,
+        `🏙️ Nuketown (Round ${round}/3)`,
+        `**${serverNickname}** — Team ${aSlot} vs Team ${bSlot}. Get ready (kits + teleport now). Doors open in **${Math.round(ROUND_PREP_MS / 1000)}s**.`
+      );
+
+      const gateA = await getNuketownGateCoord(pool, guildRowId, rustServerId, aSlot);
+      const gateB = await getNuketownGateCoord(pool, guildRowId, rustServerId, bSlot);
+      if (!gateA || !gateB) throw new Error("Missing Nuketown gate coordinates (use /manage-positions).");
+      const xyzA = parseCoordTriple(gateA);
+      const xyzB = parseCoordTriple(gateB);
+      if (!xyzA || !xyzB) throw new Error("Invalid Nuketown gate coordinates.");
+      const posA = formatTeleportPosComma(xyzA);
+      const posB = formatTeleportPosComma(xyzB);
+
+      const roster = participants
+        .map((p) => ({ ...p, slot: slotMap.get(p.clanId) ?? 0 }))
+        .filter((p) => p.slot === aSlot || p.slot === bSlot)
+        .map((p) => ({ ingameName: p.ingameName, clanId: p.clanId, slot: p.slot }));
+
+      await nuketownKillTracker.setRoundRoster(pool, rustServerId, roster);
+
+      await Promise.all(
+        roster.map(async (p) => {
+          const pos = p.slot === aSlot ? posA : posB;
+          await ensureTeleportAndKit({
+            pool,
+            rustServerId,
+            host,
+            port,
+            password,
+            kitName,
+            ingameName: p.ingameName,
+            posComma: pos,
+            signal: abort.signal,
+          });
+        })
+      );
+
+      await sleepAbortable(ROUND_PREP_MS, abort.signal);
+
+      const bcGate1 = await getNuketownGateCoord(pool, guildRowId, rustServerId, 1);
+      const bcXyz = bcGate1 ? parseCoordTriple(bcGate1) : null;
+      if (!bcXyz) throw new Error("Missing Nuketown Gate 1 (needed to open/close doors).");
+      await openThenCloseDoors(rustServerId, host, port, password, gateFrequency, bcXyz, abort.signal);
+
+      const winnerSlot = await Promise.race([
+        nuketownKillTracker.waitForTeamWipe(rustServerId),
+        new Promise<number>((_, reject) => {
+          setTimeout(() => reject(new Error(`Nuketown round timed out after ${ROUND_TIMEOUT_MS}ms`)), ROUND_TIMEOUT_MS);
+        }),
+      ]);
+
+      if (winnerSlot === aSlot) scoreA++;
+      else scoreB++;
+
+      await postInfo(
+        client,
+        announcementChannelId,
+        `🏙️ Nuketown Result`,
+        `Round ${round}/3 winner: **Team ${winnerSlot}**. Running score: **${scoreA}–${scoreB}**.`
+      );
+
+      nuketownKillTracker.clearAfterRound(rustServerId);
+
+      const toKill = (round === 3 ? roster.filter((p) => p.slot === winnerSlot) : roster).map((p) => p.ingameName);
+      await withTimeout(
+        killRosterSequential(rustServerId, host, port, password, toKill),
+        parseMsEnv("NUKETOWN_ROUND_RESET_KILL_TIMEOUT_MS", 7000),
+        "round reset killRosterSequential"
+      );
+
+      await sleepAbortable(POST_KILL_RESPAWN_MS, abort.signal);
+    }
+
+    const champSlot = scoreA > scoreB ? aSlot : bSlot;
+    const winnerClanId = teams.find((t) => t.slot === champSlot)?.clanId ?? null;
+    const clanIds = teams.map((t) => t.clanId);
+
+    // Rewards: same logic as bracket runner for 2-clan mode.
+    try {
+      const eligibleForRewards = clanIds.length / 2 >= 0.6;
+      if (eligibleForRewards && winnerClanId != null) {
+        const winnerIds = await listNuketownEventClanDiscordUserIds(pool, eventId, winnerClanId);
+        await rewardDiscordUsersLucids(pool, winnerIds, 10);
+      }
+    } catch (e) {
+      console.error("[nuketown] rewards failed:", e);
+    }
+
+    await postInfo(
+      client,
+      announcementChannelId,
+      "🏙️ Nuketown — Complete",
+      `**${serverNickname}** — Winner: **Team ${champSlot}**.`
+    );
+
+    await finishNuketownEvent(pool, eventId).catch(() => {});
+    await deleteNuketownEventAndClearConfig(pool, guildRowId, rustServerId, eventId).catch(() => {});
+  } catch (e) {
+    console.error("[nuketown] duel failed:", e);
+    await finishNuketownEvent(pool, eventId).catch(() => {});
+  } finally {
+    running.delete(rustServerId);
+    nuketownKillTracker.unregister(rustServerId);
+  }
+}
+

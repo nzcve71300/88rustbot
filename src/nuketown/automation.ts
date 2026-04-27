@@ -17,7 +17,7 @@ import { notifyGuildWebPush } from "../push/webPushNotify.js";
 import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateNuketownMessage } from "./announce.js";
 import { renderNuketownEmbed } from "./render.js";
-import { runNuketownBracket } from "./runner.js";
+import { runNuketownBracket, runNuketownDuel } from "./runner.js";
 
 const LOBBY_MAX_MINUTES = 15;
 
@@ -149,39 +149,62 @@ async function startMatchFromLobby(
   const clanMeta = new Map<number, { clanTag: string; clanName: string; clanColor: string | null }>();
   for (const p of participants) clanMeta.set(p.clanId, { clanTag: p.clanTag, clanName: p.clanName, clanColor: (p as any).clanColor ?? null });
 
-  const bracket = {
-    kind: "nuketown" as const,
-    teams: teams
-      .map((t) => ({
-        slot: t.slot,
-        clanId: t.clanId,
-        clanTag: clanMeta.get(t.clanId)?.clanTag ?? "",
-        clanName: clanMeta.get(t.clanId)?.clanName ?? "Clan",
-        clanColor: clanMeta.get(t.clanId)?.clanColor ?? null,
-      }))
-      .sort((a: any, b: any) => a.slot - b.slot),
-    stage: "running" as const,
-    currentMatch: null,
-    winners: { semi1: null, semi2: null, champion: null },
-  };
-
-  const started = await startNuketownEvent(pool, eventId, cfg.kitName, cfg.teamLimit, bracket);
+  const started = await startNuketownEvent(
+    pool,
+    eventId,
+    cfg.kitName,
+    cfg.teamLimit,
+    mode === "tournament"
+      ? {
+          kind: "nuketown" as const,
+          teams: teams
+            .map((t) => ({
+              slot: t.slot,
+              clanId: t.clanId,
+              clanTag: clanMeta.get(t.clanId)?.clanTag ?? "",
+              clanName: clanMeta.get(t.clanId)?.clanName ?? "Clan",
+              clanColor: clanMeta.get(t.clanId)?.clanColor ?? null,
+            }))
+            .sort((a: any, b: any) => a.slot - b.slot),
+          stage: "running" as const,
+          currentMatch: null,
+          winners: { semi1: null, semi2: null, champion: null },
+        }
+      : null
+  );
   if (!started) return false;
 
-  void runNuketownBracket({
-    client,
-    pool,
-    guildRowId,
-    rustServerId,
-    eventId,
-    announcementChannelId: cfg.announcementChannelId,
-    serverNickname: srv.nickname,
-    host: srv.server_ip,
-    port: srv.rcon_port,
-    password,
-    kitName: cfg.kitName,
-    gateFrequency: cfg.gateFrequency,
-  });
+  if (mode === "tournament") {
+    void runNuketownBracket({
+      client,
+      pool,
+      guildRowId,
+      rustServerId,
+      eventId,
+      announcementChannelId: cfg.announcementChannelId,
+      serverNickname: srv.nickname,
+      host: srv.server_ip,
+      port: srv.rcon_port,
+      password,
+      kitName: cfg.kitName,
+      gateFrequency: cfg.gateFrequency,
+    });
+  } else {
+    void runNuketownDuel({
+      client,
+      pool,
+      guildRowId,
+      rustServerId,
+      eventId,
+      announcementChannelId: cfg.announcementChannelId,
+      serverNickname: srv.nickname,
+      host: srv.server_ip,
+      port: srv.rcon_port,
+      password,
+      kitName: cfg.kitName,
+      gateFrequency: cfg.gateFrequency,
+    });
+  }
   return true;
 }
 

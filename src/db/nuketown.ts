@@ -248,7 +248,7 @@ export async function startNuketownEvent(
   eventId: number,
   kitName: string,
   teamLimit: number,
-  bracketJson: unknown
+  bracketJson: unknown | null
 ): Promise<boolean> {
   const [res] = await pool.query<ResultSetHeader>(
     `UPDATE nuketown_events SET
@@ -258,7 +258,7 @@ export async function startNuketownEvent(
        started_at = CURRENT_TIMESTAMP,
        bracket_json = :bracket
      WHERE id = :eid AND status = 'lobby'`,
-    { eid: eventId, kit: kitName, tlimit: teamLimit, bracket: JSON.stringify(bracketJson) }
+    { eid: eventId, kit: kitName, tlimit: teamLimit, bracket: bracketJson == null ? null : JSON.stringify(bracketJson) }
   );
   return res.affectedRows > 0;
 }

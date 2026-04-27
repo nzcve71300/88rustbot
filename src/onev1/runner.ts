@@ -137,6 +137,10 @@ function zonesEditPositionCmd(zoneName: string, xyzComma: string): string {
   return `zones.editcustomzone "${quoteForRconArg(zoneName)}" "position" "${xyzComma}"`;
 }
 
+function zonesDeleteCustomZoneCmd(zoneName: string): string {
+  return `zones.deletecustomzone "${quoteForRconArg(zoneName)}"`;
+}
+
 async function runOneV1ZoneCountdown(
   rustServerId: number,
   host: string,
@@ -148,9 +152,11 @@ async function runOneV1ZoneCountdown(
     gate2Coord: string;
     zoneNameGate1: string;
     zoneNameGate2: string;
+    /** First round only: `zones.createcustomzone` once per match. Later rounds move + edit only. */
+    createZones: boolean;
   },
   signal: AbortSignal
-): Promise<void> {
+): Promise<{ createdZones: boolean }> {
   const gate1Xyz = parseCoordTriple(opts.gate1Coord);
   const gate2Xyz = parseCoordTriple(opts.gate2Coord);
   const gate1Comma = gate1Xyz ? formatTeleportPosComma(gate1Xyz) : null;
@@ -159,15 +165,22 @@ async function runOneV1ZoneCountdown(
   const endMs = Date.now() + opts.prepBeforeDoorsMs;
   let lastRemainingSec: number | null = null;
 
-  const run = async (cmd: string): Promise<void> => {
+  const run = async (cmd: string): Promise<boolean> => {
     const res = await runWebRconCommand(rustServerId, host, port, password, cmd);
-    if (!res.ok) console.error(`[1v1] ${cmd}: ${res.error}`);
+    if (!res.ok) {
+      console.error(`[1v1] ${cmd}: ${res.error}`);
+      return false;
+    }
+    return true;
   };
 
-  const runBoth = async (mk: (zoneName: string) => string): Promise<void> => {
-    await run(mk(opts.zoneNameGate1));
-    await run(mk(opts.zoneNameGate2));
+  const runBoth = async (mk: (zoneName: string) => string): Promise<boolean> => {
+    const a = await run(mk(opts.zoneNameGate1));
+    const b = await run(mk(opts.zoneNameGate2));
+    return a && b;
   };
+
+  let createdZones = false;
 
   // Poll frequently so we can react near exact second boundaries.
   while (true) {
@@ -181,8 +194,14 @@ async function runOneV1ZoneCountdown(
       lastRemainingSec = remainingSec;
 
       if (remainingSec === 4) {
-        // Spawn zones "off-map" so they're ready.
-        await runBoth((zoneName) => zonesCreateCustomZoneCmd(zoneName));
+        if (opts.createZones) {
+          // Create once per match at the off position, then later seconds set message + move.
+          const ok = await runBoth((zoneName) => zonesCreateCustomZoneCmd(zoneName));
+          if (ok) createdZones = true;
+        } else {
+          // Ensure zones are parked off-gate before the 3→2→1 flash sequence.
+          await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
+        }
       } else if (remainingSec === 3) {
         // Message 3 and move to gates.
         await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 3));
@@ -205,6 +224,8 @@ async function runOneV1ZoneCountdown(
 
     await sleepAbortable(Math.min(200, remainingMs), signal);
   }
+
+  return { createdZones };
 }
 
 /** Same as maze `formatParenXyz` — some Zentro stacks only apply `global.teleportposrot` reliably. */
@@ -437,6 +458,17 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
   const names: [string, string] = [challengerIngame, opponentIngame];
   const postRespawnSettleMs = parsePostRespawnSettleMs();
   const respawnWaitMs = parseRespawnWaitMs();
+  let countdownZonesCreated = false;
+
+  const deleteCountdownZonesIfCreated = async (): Promise<void> => {
+    if (!countdownZonesCreated) return;
+    for (const zoneName of [challengerIngame, opponentIngame]) {
+      const cmd = zonesDeleteCustomZoneCmd(zoneName);
+      const res = await runWebRconCommand(rustServerId, host, port, password, cmd);
+      if (!res.ok) console.error(`[1v1] ${cmd}: ${res.error}`);
+    }
+    countdownZonesCreated = false;
+  };
 
   try {
     /** Clear any stuck wait from a prior crash before registering a fresh listener. */
@@ -529,7 +561,7 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
       /** Arm kill tracking only after teleports so stale RCON lines from between-round `killplayer` cannot end the round early or strand the tracker. */
       onev1KillTracker.setRoundRoster(rustServerId, challengerIngame, opponentIngame);
 
-      await runOneV1ZoneCountdown(
+      const zoneCountdown = await runOneV1ZoneCountdown(
         rustServerId,
         host,
         port,
@@ -540,9 +572,11 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
           gate2Coord: gate2,
           zoneNameGate1: challengerIngame,
           zoneNameGate2: opponentIngame,
+          createZones: round === 1,
         },
         signal
       );
+      if (zoneCountdown.createdZones) countdownZonesCreated = true;
       await openThenCloseDoors(rustServerId, host, port, password, gateFrequency, bcXyz);
 
       const winnerSide = await onev1KillTracker.waitForRoundWinner(rustServerId);
@@ -603,6 +637,8 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
         `[1v1] end-match kill failed for round 3 winner ${round3WinnerIngame ?? "(unknown)"} (check RCON / in-game name)`
       );
     }
+
+    await deleteCountdownZonesIfCreated();
 
     try {
       const ch = await client.channels.fetch(announcementChannelId);
@@ -665,6 +701,7 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
       throw e;
     }
   } finally {
+    void deleteCountdownZonesIfCreated().catch(() => {});
     runningOneV1.delete(rustServerId);
     onev1RespawnWait.cancel(rustServerId);
     onev1KillTracker.unregister(rustServerId);

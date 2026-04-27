@@ -118,6 +118,95 @@ function formatTeleportPosComma(xyz: [number, number, number]): string {
   return `${xyz[0].toFixed(2)},${xyz[1].toFixed(2)},${xyz[2].toFixed(2)}`;
 }
 
+const ONEV1_ZONE_OFF_POS_COMMA = "3731.29,3.07,604.05";
+const ONEV1_ZONE_OFF_POS_PAREN = "(3731.29,3.07,604.05)";
+
+function zonesCreateCustomZoneCmd(zoneName: string): string {
+  // IMPORTANT: spacing and structure must match the required command.
+  return `zones.createcustomzone "${quoteForRconArg(zoneName)}" ${ONEV1_ZONE_OFF_POS_PAREN} 0 Box (5,5,5) 1 0 0 1 0`;
+}
+
+function zonesEditEnterMessageCmd(zoneName: string, n: 1 | 2 | 3): string {
+  // IMPORTANT: do not change spaces in the message string; only the number varies.
+  const msg = `<b><size=55><color=#00ffff>                                                    ${n}</color></size></b>`;
+  return `zones.editcustomzone "${quoteForRconArg(zoneName)}" entermessage "${msg}"`;
+}
+
+function zonesEditPositionCmd(zoneName: string, xyzComma: string): string {
+  // IMPORTANT: spacing and quoting must match the required command.
+  return `zones.editcustomzone "${quoteForRconArg(zoneName)}" "position" "${xyzComma}"`;
+}
+
+async function runOneV1ZoneCountdown(
+  rustServerId: number,
+  host: string,
+  port: number,
+  password: string,
+  opts: {
+    prepBeforeDoorsMs: number;
+    gate1Coord: string;
+    gate2Coord: string;
+    zoneNameGate1: string;
+    zoneNameGate2: string;
+  },
+  signal: AbortSignal
+): Promise<void> {
+  const gate1Xyz = parseCoordTriple(opts.gate1Coord);
+  const gate2Xyz = parseCoordTriple(opts.gate2Coord);
+  const gate1Comma = gate1Xyz ? formatTeleportPosComma(gate1Xyz) : null;
+  const gate2Comma = gate2Xyz ? formatTeleportPosComma(gate2Xyz) : null;
+
+  const endMs = Date.now() + opts.prepBeforeDoorsMs;
+  let lastRemainingSec: number | null = null;
+
+  const run = async (cmd: string): Promise<void> => {
+    const res = await runWebRconCommand(rustServerId, host, port, password, cmd);
+    if (!res.ok) console.error(`[1v1] ${cmd}: ${res.error}`);
+  };
+
+  const runBoth = async (mk: (zoneName: string) => string): Promise<void> => {
+    await run(mk(opts.zoneNameGate1));
+    await run(mk(opts.zoneNameGate2));
+  };
+
+  // Poll frequently so we can react near exact second boundaries.
+  while (true) {
+    throwIfAborted(signal);
+
+    const remainingMs = endMs - Date.now();
+    if (remainingMs <= 0) break;
+    const remainingSec = Math.ceil(remainingMs / 1000);
+
+    if (lastRemainingSec !== remainingSec) {
+      lastRemainingSec = remainingSec;
+
+      if (remainingSec === 4) {
+        // Spawn zones "off-map" so they're ready.
+        await runBoth((zoneName) => zonesCreateCustomZoneCmd(zoneName));
+      } else if (remainingSec === 3) {
+        // Message 3 and move to gates.
+        await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 3));
+        if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
+        if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
+      } else if (remainingSec === 2) {
+        // Just before "3" finishes: move away, set message 2, move back.
+        await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
+        await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 2));
+        if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
+        if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
+      } else if (remainingSec === 1) {
+        // Just before "2" finishes: move away, set message 1, move back.
+        await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
+        await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 1));
+        if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
+        if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
+      }
+    }
+
+    await sleepAbortable(Math.min(200, remainingMs), signal);
+  }
+}
+
 /** Same as maze `formatParenXyz` — some Zentro stacks only apply `global.teleportposrot` reliably. */
 function formatTeleportPosParen(xyz: [number, number, number]): string {
   return `(${xyz[0].toFixed(2)},${xyz[1].toFixed(2)},${xyz[2].toFixed(2)})`;
@@ -440,7 +529,20 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
       /** Arm kill tracking only after teleports so stale RCON lines from between-round `killplayer` cannot end the round early or strand the tracker. */
       onev1KillTracker.setRoundRoster(rustServerId, challengerIngame, opponentIngame);
 
-      await sleepAbortable(parsePrepBeforeDoorsMs(), signal);
+      await runOneV1ZoneCountdown(
+        rustServerId,
+        host,
+        port,
+        password,
+        {
+          prepBeforeDoorsMs: parsePrepBeforeDoorsMs(),
+          gate1Coord: gate1,
+          gate2Coord: gate2,
+          zoneNameGate1: challengerIngame,
+          zoneNameGate2: opponentIngame,
+        },
+        signal
+      );
       await openThenCloseDoors(rustServerId, host, port, password, gateFrequency, bcXyz);
 
       const winnerSide = await onev1KillTracker.waitForRoundWinner(rustServerId);

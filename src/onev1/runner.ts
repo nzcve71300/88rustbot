@@ -137,6 +137,11 @@ function zonesEditPositionCmd(zoneName: string, xyzComma: string): string {
   return `zones.editcustomzone "${quoteForRconArg(zoneName)}" "position" "${xyzComma}"`;
 }
 
+function zonesEditShowAreaCmd(zoneName: string, v: 0 | 1): string {
+  // IMPORTANT: must match required command format.
+  return `zones.editcustomzone "${quoteForRconArg(zoneName)}" "showarea" "${v}"`;
+}
+
 function zonesDeleteCustomZoneCmd(zoneName: string): string {
   return `zones.deletecustomzone "${quoteForRconArg(zoneName)}"`;
 }
@@ -205,18 +210,21 @@ async function runOneV1ZoneCountdown(
       } else if (remainingSec === 3) {
         // Message 3 and move to gates.
         await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 3));
+        await runBoth((zoneName) => zonesEditShowAreaCmd(zoneName, 0));
         if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
         if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
       } else if (remainingSec === 2) {
         // Just before "3" finishes: move away, set message 2, move back.
         await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
         await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 2));
+        await runBoth((zoneName) => zonesEditShowAreaCmd(zoneName, 0));
         if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
         if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
       } else if (remainingSec === 1) {
         // Just before "2" finishes: move away, set message 1, move back.
         await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
         await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 1));
+        await runBoth((zoneName) => zonesEditShowAreaCmd(zoneName, 0));
         if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
         if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
       }

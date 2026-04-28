@@ -10,7 +10,7 @@ import { ADMIN_ROLE_NAME } from "../constants.js";
 import { baseEmbed } from "../embeds/standard.js";
 import { getOrCreateGuildRow } from "../db/guilds.js";
 import { pool } from "../db/pool.js";
-import { deleteLinkByDiscordUser, getLinkByDiscordUser } from "../db/links.js";
+import { deleteLinkByDiscordUser, getLinkByDiscordUser, getLinkByIngameNameCi } from "../db/links.js";
 
 export const UNLINK_CONFIRM_ID = "unlink:confirm";
 export const UNLINK_CANCEL_ID = "unlink:cancel";
@@ -37,33 +37,58 @@ export async function beginUnlink(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const target = interaction.options.getUser("user", true);
-  if (target.bot) {
+  const target = interaction.options.getUser("user", false);
+  const nameOpt = interaction.options.getString("name", false)?.trim() ?? "";
+
+  if (!target && !nameOpt) {
+    await interaction.reply({
+      embeds: [baseEmbed().setTitle("Missing target").setDescription("Provide either **user** or **name**.")],
+      ephemeral: true,
+    });
+    return;
+  }
+  if (target && nameOpt) {
+    await interaction.reply({
+      embeds: [baseEmbed().setTitle("Pick one").setDescription("Provide **either** user **or** name (not both).")],
+      ephemeral: true,
+    });
+    return;
+  }
+  if (target?.bot) {
     await interaction.reply({ content: "You cannot unlink a bot.", ephemeral: true });
     return;
   }
 
   const guildRowId = await getOrCreateGuildRow(pool, interaction.guildId);
-  const existing = await getLinkByDiscordUser(pool, guildRowId, target.id);
+  const existing = target
+    ? await getLinkByDiscordUser(pool, guildRowId, target.id)
+    : await getLinkByIngameNameCi(pool, guildRowId, nameOpt);
   if (!existing) {
     await interaction.reply({
       embeds: [
         baseEmbed()
           .setTitle("Not linked")
-          .setDescription(`${target} is not linked to an in-game name in this Discord.`),
+          .setDescription(
+            target
+              ? `${target} is not linked to an in-game name in this Discord.`
+              : `**\`${nameOpt}\`** is not linked to any Discord user in this Discord.`
+          ),
       ],
       ephemeral: true,
     });
     return;
   }
 
+  const targetUserId = target?.id ?? existing.discordUserId;
   pending.set(key(interaction.guildId, interaction.user.id), {
-    targetUserId: target.id,
+    targetUserId,
     ingameName: existing.ingameName,
     createdAt: Date.now(),
   });
 
-  const display = target.globalName ?? target.username;
+  const display = target
+    ? target.globalName ?? target.username
+    : `<@${targetUserId}>`;
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(UNLINK_CONFIRM_ID).setLabel("Confirm").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(UNLINK_CANCEL_ID).setLabel("Decline").setStyle(ButtonStyle.Secondary)

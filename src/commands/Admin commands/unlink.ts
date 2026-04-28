@@ -6,7 +6,14 @@ export const unlinkCommand = {
     .setName("unlink")
     .setDescription("Remove a member's /link for this Discord (admin only).")
     .addUserOption((o) =>
-      o.setName("user").setDescription("Member to unlink (@mention)").setRequired(true)
+      o.setName("user").setDescription("Member to unlink (@mention)").setRequired(false)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("name")
+        .setDescription("In-game name to unlink (finds the linked Discord user).")
+        .setRequired(false)
+        .setMaxLength(64)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {

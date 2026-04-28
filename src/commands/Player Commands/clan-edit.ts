@@ -7,7 +7,7 @@ import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
 import { resolveRoleColor } from "../../clans/discordAssets.js";
 
-const TAG_RE = /^[A-Za-z]{3,5}$/;
+const TAG_RE = /^[A-Za-z]{3,4}$/;
 
 const COLOR_CHOICES = [
   { name: "🟥 Red", value: "red" },
@@ -56,10 +56,10 @@ export const clanEditCommand = {
     .addStringOption((o) =>
       o
         .setName("new_tag")
-        .setDescription("New clan tag (3–5 letters).")
+        .setDescription("New clan tag (3–4 letters).")
         .setRequired(true)
         .setMinLength(3)
-        .setMaxLength(5)
+        .setMaxLength(4)
     )
     .addStringOption((o) =>
       o
@@ -102,7 +102,7 @@ export const clanEditCommand = {
     }
     if (!TAG_RE.test(newTag)) {
       await interaction.reply({
-        embeds: [baseEmbed().setTitle("Invalid tag").setDescription("Tag must be **3–5 letters** (A-Z).")],
+        embeds: [baseEmbed().setTitle("Invalid tag").setDescription("Tag must be **3–4 letters** (A-Z).")],
         ephemeral: true,
       });
       return;

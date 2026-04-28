@@ -91,9 +91,15 @@ import {
   inviteCodeExists,
   promoteClanOwner,
   removeClanMember,
+  updateClanDetails,
 } from "../db/clans.js";
 import { refreshActiveClansPanelsForGuild } from "../clans/activeClansPanel.js";
-import { createClanRole, createPrivateClanChannel, ensureClansCategory } from "../clans/discordAssets.js";
+import {
+  createClanRole,
+  createPrivateClanChannel,
+  ensureClansCategory,
+  resolveRoleColor,
+} from "../clans/discordAssets.js";
 import { listRustServersForGuild } from "../db/rustServers.js";
 import { updateKothMessage } from "../koth/announce.js";
 import { updateMazeMessage } from "../maze/announce.js";
@@ -1643,6 +1649,90 @@ export function startCommandCenterApi(client?: Client): void {
           }
 
           json(res, 200, { ok: true, message: `Your clan ${clanName} has been created.`, clanName, tag, color });
+          if (client && guildDiscordId) {
+            await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+          }
+          return;
+        }
+
+        if (tail === "edit" && req.method === "POST") {
+          if (!guild) {
+            json(res, 500, { ok: false, error: "Discord client not available for clan editing." });
+            return;
+          }
+          const clan = await getMemberClan(pool, guildRowId, discordUserId);
+          if (!clan) {
+            json(res, 403, { ok: false, error: "No clan." });
+            return;
+          }
+          if (!clan.ownerDiscordUserId || String(clan.ownerDiscordUserId) !== discordUserId) {
+            json(res, 403, { ok: false, error: "Only owner can edit." });
+            return;
+          }
+
+          const body = (await readJsonBody(req)) as { name?: string; tag?: string; color?: string } | null;
+          const clanName = String(body?.name ?? "").trim();
+          const tag = String(body?.tag ?? "").trim().toUpperCase();
+          const color = String(body?.color ?? "").trim();
+          if (!clanName) {
+            json(res, 400, { ok: false, error: "Missing clan name." });
+            return;
+          }
+          if (!/^[A-Z]{3,4}$/.test(tag)) {
+            json(res, 400, { ok: false, error: "Tag must be 3–4 letters (A-Z)." });
+            return;
+          }
+          const allowed = new Set(["red","orange","yellow","green","blue","purple","black","white","brown","pink","cyan","lime"]);
+          if (!allowed.has(color)) {
+            json(res, 400, { ok: false, error: "Invalid color." });
+            return;
+          }
+
+          const toChannelName = (s: string) =>
+            (s || "clan")
+              .trim()
+              .toLowerCase()
+              .replace(/['"]/g, "")
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/-+/g, "-")
+              .replace(/^-|-$/g, "")
+              .slice(0, 100);
+
+          try {
+            const r = await updateClanDetails(pool, guildRowId, clan.clanId, discordUserId, { name: clanName, tag, color });
+            if (r !== "ok") {
+              json(res, 403, { ok: false, error: "Only owner can edit." });
+              return;
+            }
+          } catch (e: unknown) {
+            const code = typeof e === "object" && e && "code" in e ? String((e as { code: string }).code) : "";
+            if (code === "ER_DUP_ENTRY") {
+              json(res, 409, { ok: false, error: "Clan name or tag already taken in this Discord." });
+              return;
+            }
+            throw e;
+          }
+
+          // Best-effort: rename role/channel to match.
+          if (clan.discordRoleId) {
+            try {
+              const role = await guild.roles.fetch(String(clan.discordRoleId));
+              await role?.edit({ name: clanName, color: resolveRoleColor(color), reason: "Clan edited via command center" });
+            } catch {}
+          }
+          if (clan.discordChannelId) {
+            try {
+              const ch = await guild.channels.fetch(String(clan.discordChannelId));
+              if (ch && "setName" in ch) {
+                await (ch as { setName: (name: string, reason?: string) => Promise<unknown> }).setName(
+                  toChannelName(clanName),
+                  "Clan edited via command center"
+                );
+              }
+            } catch {}
+          }
+
+          json(res, 200, { ok: true, clanName, tag, color });
           if (client && guildDiscordId) {
             await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
           }

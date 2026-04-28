@@ -4,6 +4,7 @@ import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { getLinkByDiscordUser } from "../../db/links.js";
 import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
+import { optInNicknameSync } from "../../db/nicknameSync.js";
 
 export const syncMeCommand = {
   data: new SlashCommandBuilder()
@@ -31,12 +32,16 @@ export const syncMeCommand = {
       return;
     }
 
+    // Explicit opt-in for legacy users (and safe to call repeatedly).
+    await optInNicknameSync(pool, guildRowId, interaction.user.id).catch(() => {});
+
     try {
       await syncLinkedNicknameForUser({
         pool,
         guildRowId,
         guild: interaction.guild,
         discordUserId: interaction.user.id,
+        force: true,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

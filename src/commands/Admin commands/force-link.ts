@@ -10,6 +10,7 @@ import { pool } from "../../db/pool.js";
 import { getLinkByDiscordUser, insertLink } from "../../db/links.js";
 import { isValidIngameName } from "../../linking/linkFlow.js";
 import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
+import { optInNicknameSync } from "../../db/nicknameSync.js";
 
 export const forceLinkCommand = {
   data: new SlashCommandBuilder()
@@ -86,12 +87,16 @@ export const forceLinkCommand = {
       throw e;
     }
 
+    // New link => enable auto nickname sync going forward.
+    await optInNicknameSync(pool, guildRowId, target.id).catch(() => {});
+
     // Update nickname: linked name (+ clan tag if in clan).
     await syncLinkedNicknameForUser({
       pool,
       guildRowId,
       guild: interaction.guild,
       discordUserId: target.id,
+      force: true,
     }).catch(() => {});
 
     // Public announcement (exactly like /link style, with forced-link header).

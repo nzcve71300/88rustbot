@@ -2,6 +2,7 @@ import type { Guild } from "discord.js";
 import type { Pool } from "mysql2/promise";
 import { getLinkByDiscordUser } from "../db/links.js";
 import { getMemberClan, listClanMemberDiscordUserIds } from "../db/clans.js";
+import { isNicknameSyncOptedIn } from "../db/nicknameSync.js";
 
 function buildNickname(linkedName: string, clanTag: string | null): string {
   const cleanName = String(linkedName || "").trim();
@@ -18,8 +19,14 @@ export async function syncLinkedNicknameForUser(opts: {
   guildRowId: number;
   guild: Guild;
   discordUserId: string;
+  force?: boolean;
 }): Promise<void> {
-  const { pool, guildRowId, guild, discordUserId } = opts;
+  const { pool, guildRowId, guild, discordUserId, force } = opts;
+
+  if (!force) {
+    const ok = await isNicknameSyncOptedIn(pool, guildRowId, discordUserId).catch(() => false);
+    if (!ok) return;
+  }
 
   const link = await getLinkByDiscordUser(pool, guildRowId, discordUserId);
   if (!link) return;

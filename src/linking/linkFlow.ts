@@ -10,6 +10,7 @@ import { getOrCreateGuildRow } from "../db/guilds.js";
 import { pool } from "../db/pool.js";
 import { getLinkByDiscordUser, insertLink } from "../db/links.js";
 import { syncLinkedNicknameForUser } from "../clans/nicknames.js";
+import { optInNicknameSync } from "../db/nicknameSync.js";
 
 export const LINK_CONFIRM_ID = "link:confirm";
 export const LINK_CANCEL_ID = "link:cancel";
@@ -124,12 +125,16 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
 
   pending.delete(k);
 
+  // New link => enable auto nickname sync going forward.
+  await optInNicknameSync(pool, guildRowId, interaction.user.id).catch(() => {});
+
   // Update nickname: linked name (+ clan tag if in clan).
   await syncLinkedNicknameForUser({
     pool,
     guildRowId,
     guild: interaction.guild,
     discordUserId: interaction.user.id,
+    force: true,
   }).catch(() => {});
 
   const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });

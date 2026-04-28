@@ -163,6 +163,20 @@ export async function ensureSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Nickname sync opt-in: legacy linked users must run /sync-me once after rollout.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS nickname_sync_opt_in (
+        guild_id BIGINT UNSIGNED NOT NULL,
+        discord_user_id BIGINT UNSIGNED NOT NULL,
+        opted_in_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (guild_id, discord_user_id),
+        KEY idx_nick_opt_user (discord_user_id),
+        CONSTRAINT fk_nick_opt_guild FOREIGN KEY (guild_id) REFERENCES guilds (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await ignoreDup("ALTER TABLE nickname_sync_opt_in ADD COLUMN opted_in_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS koth_configs (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

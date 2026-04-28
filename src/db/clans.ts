@@ -272,6 +272,33 @@ export async function createClan(
   }
 }
 
+export async function updateClanDetails(
+  pool: Pool,
+  guildRowId: number,
+  clanId: number,
+  ownerDiscordUserId: string,
+  input: { name: string; tag: string; color: string }
+): Promise<"ok" | "not_owner"> {
+  const [res] = await pool.query<ResultSetHeader>(
+    `
+    UPDATE clans
+    SET name = :name, tag = :tag, color = :color
+    WHERE id = :cid
+      AND guild_id = :gid
+      AND CAST(owner_discord_user_id AS CHAR) = :owner
+    `,
+    {
+      cid: clanId,
+      gid: guildRowId,
+      owner: String(ownerDiscordUserId),
+      name: input.name,
+      tag: input.tag,
+      color: input.color,
+    }
+  );
+  return res.affectedRows > 0 ? "ok" : "not_owner";
+}
+
 export async function deleteClan(pool: Pool, guildRowId: number, clanId: number): Promise<void> {
   // Delete is cascaded for `clan_members`, `clan_invites`, and event membership tables via FK constraints.
   // Some historical tables (ex: kill logs) may not have FK constraints; clean them explicitly so

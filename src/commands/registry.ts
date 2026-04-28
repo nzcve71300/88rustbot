@@ -1,6 +1,7 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from "discord.js";
 import { clanCreateCommand } from "./Player Commands/clan-create.js";
 import { clanDeleteCommand } from "./Player Commands/clan-delete.js";
+import { clanEditCommand } from "./Player Commands/clan-edit.js";
 import { clanInviteCommand } from "./Player Commands/clan-invite.js";
 import { clanKickCommand } from "./Player Commands/clan-kick.js";
 import { clanLeaveCommand } from "./Player Commands/clan-leave.js";
@@ -85,6 +86,7 @@ const slashCommandsAll: SlashCommandModule[] = [
 
   // player
   clanCreateCommand,
+  clanEditCommand,
   clanLeaveCommand,
   clanInviteCommand,
   clanPromoteCommand,

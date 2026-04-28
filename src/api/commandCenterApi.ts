@@ -89,6 +89,7 @@ import {
   getMemberClan,
   findInviteByCode,
   inviteCodeExists,
+  listClanMemberDiscordUserIds,
   promoteClanOwner,
   removeClanMember,
   updateClanDetails,
@@ -100,6 +101,7 @@ import {
   ensureClansCategory,
   resolveRoleColor,
 } from "../clans/discordAssets.js";
+import { syncLinkedNicknameForUser, syncLinkedNicknamesForClan } from "../clans/nicknames.js";
 import { listRustServersForGuild } from "../db/rustServers.js";
 import { updateKothMessage } from "../koth/announce.js";
 import { updateMazeMessage } from "../maze/announce.js";
@@ -1735,6 +1737,10 @@ export function startCommandCenterApi(client?: Client): void {
           json(res, 200, { ok: true, clanName, tag, color });
           if (client && guildDiscordId) {
             await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+            // Tag may have changed; sync nicknames for all members.
+            if (guild) {
+              await syncLinkedNicknamesForClan({ pool, guildRowId, guild, clanId: clan.clanId }).catch(() => {});
+            }
           }
           return;
         }
@@ -1798,6 +1804,9 @@ export function startCommandCenterApi(client?: Client): void {
           json(res, 200, { ok: true, clanName: inv.clanName });
           if (client && guildDiscordId) {
             await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+            if (guild) {
+              await syncLinkedNicknameForUser({ pool, guildRowId, guild, discordUserId }).catch(() => {});
+            }
           }
           return;
         }
@@ -1824,6 +1833,9 @@ export function startCommandCenterApi(client?: Client): void {
           json(res, 200, { ok: true, left: true });
           if (client && guildDiscordId) {
             await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+            if (guild) {
+              await syncLinkedNicknameForUser({ pool, guildRowId, guild, discordUserId }).catch(() => {});
+            }
           }
           return;
         }
@@ -1860,6 +1872,9 @@ export function startCommandCenterApi(client?: Client): void {
           json(res, 200, { ok: true });
           if (client && guildDiscordId) {
             await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+            if (guild) {
+              await syncLinkedNicknameForUser({ pool, guildRowId, guild, discordUserId: targetId }).catch(() => {});
+            }
           }
           return;
         }
@@ -1895,6 +1910,7 @@ export function startCommandCenterApi(client?: Client): void {
             json(res, 403, { ok: false, error: "Only owner can delete." });
             return;
           }
+          const memberIds = await listClanMemberDiscordUserIds(pool, clan.clanId).catch(() => []);
           await deleteClan(pool, guildRowId, clan.clanId);
           if (guild) {
             if (clan.discordChannelId) {
@@ -1907,6 +1923,11 @@ export function startCommandCenterApi(client?: Client): void {
           json(res, 200, { ok: true });
           if (client && guildDiscordId) {
             await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+            if (guild) {
+              await Promise.all(
+                memberIds.map((uid) => syncLinkedNicknameForUser({ pool, guildRowId, guild, discordUserId: uid }).catch(() => {}))
+              );
+            }
           }
           return;
         }

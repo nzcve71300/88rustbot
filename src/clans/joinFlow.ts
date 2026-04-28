@@ -15,6 +15,7 @@ import {
   getClanSettings,
 } from "../db/clans.js";
 import { refreshActiveClansPanelsForGuild } from "./activeClansPanel.js";
+import { syncLinkedNicknameForUser } from "./nicknames.js";
 import {
   buildJoinClanModal,
   JOIN_CLAN_BUTTON_ID,
@@ -135,6 +136,16 @@ export async function handleJoinClanModal(interaction: ModalSubmitInteraction): 
     ],
     ephemeral: true,
   });
+
+  // Best-effort: add clan tag to nickname now that they're in a clan.
+  if (interaction.guild) {
+    await syncLinkedNicknameForUser({
+      pool,
+      guildRowId,
+      guild: interaction.guild,
+      discordUserId: interaction.user.id,
+    }).catch(() => {});
+  }
 
   // Best-effort: update tracked /active-clans message(s) immediately.
   await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});

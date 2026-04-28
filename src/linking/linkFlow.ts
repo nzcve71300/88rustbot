@@ -9,6 +9,7 @@ import { baseEmbed } from "../embeds/standard.js";
 import { getOrCreateGuildRow } from "../db/guilds.js";
 import { pool } from "../db/pool.js";
 import { getLinkByDiscordUser, insertLink } from "../db/links.js";
+import { syncLinkedNicknameForUser } from "../clans/nicknames.js";
 
 export const LINK_CONFIRM_ID = "link:confirm";
 export const LINK_CANCEL_ID = "link:cancel";
@@ -123,13 +124,13 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
 
   pending.delete(k);
 
-  // Update nickname: 🔗{name}
-  try {
-    const member = await interaction.guild.members.fetch(interaction.user.id);
-    await member.setNickname(`🔗${p.name}`.slice(0, 32), "Linked in-game name");
-  } catch {
-    // ignore permission failures
-  }
+  // Update nickname: linked name (+ clan tag if in clan).
+  await syncLinkedNicknameForUser({
+    pool,
+    guildRowId,
+    guild: interaction.guild,
+    discordUserId: interaction.user.id,
+  }).catch(() => {});
 
   const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });
   const publicEmbed = baseEmbed()

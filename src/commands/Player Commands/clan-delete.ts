@@ -5,6 +5,8 @@ import { deleteClan, getMemberClan } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
+import { listClanMemberDiscordUserIds } from "../../db/clans.js";
+import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
 
 export const clanDeleteCommand = {
   data: new SlashCommandBuilder()
@@ -57,6 +59,9 @@ export const clanDeleteCommand = {
       return;
     }
 
+    // Capture member list before delete so we can update nicknames afterwards.
+    const memberIds = await listClanMemberDiscordUserIds(pool, clan.clanId).catch(() => []);
+
     await deleteClan(pool, guildRowId, clan.clanId);
     if (interaction.guild) {
       if (clan.discordChannelId) {
@@ -80,6 +85,15 @@ export const clanDeleteCommand = {
     await interaction.editReply({
       embeds: [baseEmbed().setTitle("Clan deleted").setDescription(`**${clan.clanName}** was deleted successfully.`)],
     });
+
+    // Best-effort: remove clan tags from everyone who was in the deleted clan.
+    if (interaction.guild) {
+      await Promise.all(
+        memberIds.map((uid) =>
+          syncLinkedNicknameForUser({ pool, guildRowId, guild: interaction.guild!, discordUserId: uid }).catch(() => {})
+        )
+      );
+    }
 
     // Best-effort: update tracked /active-clans message(s).
     await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});

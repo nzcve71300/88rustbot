@@ -6,6 +6,7 @@ import { autocompleteServerOption, validateServerSelection } from "../shared/ser
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
 import { resolveRoleColor } from "../../clans/discordAssets.js";
+import { syncLinkedNicknamesForClan } from "../../clans/nicknames.js";
 
 const TAG_RE = /^[A-Za-z]{3,4}$/;
 
@@ -182,6 +183,14 @@ export const clanEditCommand = {
 
     // Best-effort: update tracked /active-clans message(s).
     await refreshActiveClansPanelsForGuild(interaction.client, interaction.guild.id).catch(() => {});
+
+    // Best-effort: update nicknames (tag may have changed).
+    await syncLinkedNicknamesForClan({
+      pool,
+      guildRowId,
+      guild: interaction.guild,
+      clanId: memberClan.clanId,
+    }).catch(() => {});
 
     await interaction.editReply({
       embeds: [

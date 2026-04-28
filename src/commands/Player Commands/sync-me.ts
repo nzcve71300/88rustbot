@@ -3,6 +3,7 @@ import { baseEmbed } from "../../embeds/standard.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { getLinkByDiscordUser } from "../../db/links.js";
+import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
 
 export const syncMeCommand = {
   data: new SlashCommandBuilder()
@@ -30,47 +31,13 @@ export const syncMeCommand = {
       return;
     }
 
-    // Same nickname format as /link so it stays consistent across the bot.
-    const nick = `🔗${link.ingameName}`.slice(0, 32);
     try {
-      const member = await interaction.guild.members.fetch(interaction.user.id);
-      const me = interaction.guild.members.me ?? (await interaction.guild.members.fetchMe().catch(() => null));
-
-      if (interaction.guild.ownerId === interaction.user.id) {
-        await interaction.editReply({
-          embeds: [
-            baseEmbed()
-              .setTitle("Can’t change your nickname")
-              .setDescription(
-                [
-                  "Discord does not allow bots to change the **server owner’s** nickname.",
-                  "",
-                  `You are still linked as **${link.ingameName}**.`,
-                ].join("\n")
-              ),
-          ],
-        });
-        return;
-      }
-
-      if (me && me.roles.highest.comparePositionTo(member.roles.highest) <= 0) {
-        await interaction.editReply({
-          embeds: [
-            baseEmbed()
-              .setTitle("Can’t change your nickname")
-              .setDescription(
-                [
-                  "My role is not high enough to change your nickname.",
-                  "",
-                  "**Fix:** Move the bot’s role above your role in Server Settings → Roles.",
-                  `You are still linked as **${link.ingameName}**.`,
-                ].join("\n")
-              ),
-          ],
-        });
-        return;
-      }
-      await member.setNickname(nick, "Synced linked in-game name");
+      await syncLinkedNicknameForUser({
+        pool,
+        guildRowId,
+        guild: interaction.guild,
+        discordUserId: interaction.user.id,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await interaction.editReply({

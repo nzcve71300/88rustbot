@@ -9,6 +9,7 @@ import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
 import { getLinkByDiscordUser, insertLink } from "../../db/links.js";
 import { isValidIngameName } from "../../linking/linkFlow.js";
+import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
 
 export const forceLinkCommand = {
   data: new SlashCommandBuilder()
@@ -85,13 +86,13 @@ export const forceLinkCommand = {
       throw e;
     }
 
-    // Update nickname: 🔗{name} (best-effort).
-    try {
-      const member = await interaction.guild.members.fetch(target.id);
-      await member.setNickname(`🔗${clean}`.slice(0, 32), "Force link in-game name");
-    } catch {
-      // ignore permission failures
-    }
+    // Update nickname: linked name (+ clan tag if in clan).
+    await syncLinkedNicknameForUser({
+      pool,
+      guildRowId,
+      guild: interaction.guild,
+      discordUserId: target.id,
+    }).catch(() => {});
 
     // Public announcement (exactly like /link style, with forced-link header).
     const avatarUrl = target.displayAvatarURL({ size: 256 });

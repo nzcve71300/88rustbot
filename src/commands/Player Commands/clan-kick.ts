@@ -5,6 +5,7 @@ import { getMemberClan, removeClanMember } from "../../db/clans.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { ensureClanSystemEnabled } from "../../clans/guard.js";
 import { refreshActiveClansPanelsForGuild } from "../../clans/activeClansPanel.js";
+import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
 
 export const clanKickCommand = {
   data: new SlashCommandBuilder()
@@ -101,6 +102,16 @@ export const clanKickCommand = {
           .setDescription(`**${target.username}** was kicked from **${myClan.clanName}**.`),
       ],
     });
+
+    // Best-effort: remove clan tag from kicked member's nickname.
+    if (interaction.guild) {
+      await syncLinkedNicknameForUser({
+        pool,
+        guildRowId,
+        guild: interaction.guild,
+        discordUserId: target.id,
+      }).catch(() => {});
+    }
 
     // Best-effort: update tracked /active-clans message(s).
     await refreshActiveClansPanelsForGuild(interaction.client, interaction.guildId).catch(() => {});

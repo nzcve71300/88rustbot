@@ -27,6 +27,7 @@ import { nuketownStartCommand } from "./Admin commands/nuketown-start.js";
 import { nuketownDeleteCommand } from "./Admin commands/nuketown-delete.js";
 import { setCommand } from "./Admin commands/set.js";
 import { unlinkCommand } from "./Admin commands/unlink.js";
+import { forceLinkCommand } from "./Admin commands/force-link.js";
 import { kothJoinCommand } from "./Player Commands/koth-join.js";
 import { kothLeaveCommand } from "./Player Commands/koth-leave.js";
 import { mazeJoinCommand } from "./Player Commands/maze-join.js";
@@ -82,6 +83,7 @@ const slashCommandsAll: SlashCommandModule[] = [
   dockedCargoStartCommand,
   setCommand,
   unlinkCommand,
+  forceLinkCommand,
   giveTokensCommand,
 
   // player

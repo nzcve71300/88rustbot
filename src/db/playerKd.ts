@@ -34,3 +34,8 @@ export async function incrementPlayerDeaths(
   );
 }
 
+export async function wipeAllPlayerKd(pool: Pool): Promise<number> {
+  const [r] = await pool.query<ResultSetHeader>("DELETE FROM rust_player_kd");
+  return Number(r.affectedRows ?? 0);
+}
+

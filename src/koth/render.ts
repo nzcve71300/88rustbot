@@ -41,6 +41,11 @@ export function renderKothEmbed(
       [
         "**KOTH Event is starting soon!**",
         "",
+        "**How it works**",
+        "- Join as a clan member (requires **/link** + being in a **clan**).",
+        "- When the lobby closes, the bot will **kit + teleport** participants to their gate.",
+        `- Doors open after a **${Math.round(60_000 / 1000)}s** prep window.`,
+        "",
         "**Lobby timer**",
         timerLine,
         "",

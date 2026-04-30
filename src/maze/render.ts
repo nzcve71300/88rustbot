@@ -30,7 +30,10 @@ export function renderMazeEmbed(
       [
         `Use **/maze-join** with server **${serverNickname}** to join (max **10** players, clan + /link required).`,
         "",
-        "**Max 1 member from each clan**",
+        "**Rules / expectations**",
+        "- **Max 1 member per clan**",
+        "- When the event starts, the bot will **kit + teleport** you automatically.",
+        "- If respawns are enabled: after you die, click **Respawn** and you will be teleported **once** to a new maze spawn.",
         "",
         "**Event starting**",
         startsLine,

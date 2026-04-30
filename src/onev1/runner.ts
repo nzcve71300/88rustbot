@@ -132,6 +132,11 @@ function zonesEditEnterMessageCmd(zoneName: string, n: 1 | 2 | 3): string {
   return `zones.editcustomzone "${quoteForRconArg(zoneName)}" entermessage "${msg}"`;
 }
 
+function zonesEditEnterMessageGoCmd(zoneName: string): string {
+  const msg = `<b><size=55><color=#00ff00>                                                   GO</color></size></b>`;
+  return `zones.editcustomzone "${quoteForRconArg(zoneName)}" entermessage "${msg}"`;
+}
+
 function zonesEditPositionCmd(zoneName: string, xyzComma: string): string {
   // IMPORTANT: spacing and quoting must match the required command.
   return `zones.editcustomzone "${quoteForRconArg(zoneName)}" "position" "${xyzComma}"`;
@@ -198,32 +203,18 @@ async function runOneV1ZoneCountdown(
     if (lastRemainingSec !== remainingSec) {
       lastRemainingSec = remainingSec;
 
-      if (remainingSec === 4) {
+      if (remainingSec === 2) {
         if (opts.createZones) {
-          // Create once per match at the off position, then later seconds set message + move.
+          // Create once per round at the off position, then we set GO and move to gates.
           const ok = await runBoth((zoneName) => zonesCreateCustomZoneCmd(zoneName));
           if (ok) createdZones = true;
         } else {
-          // Ensure zones are parked off-gate before the 3→2→1 flash sequence.
+          // Ensure zones are parked off-gate before the GO flash.
           await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
         }
-      } else if (remainingSec === 3) {
-        // Message 3 and move to gates.
-        await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 3));
-        await runBoth((zoneName) => zonesEditShowAreaCmd(zoneName, 0));
-        if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
-        if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
-      } else if (remainingSec === 2) {
-        // Just before "3" finishes: move away, set message 2, move back.
-        await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
-        await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 2));
-        await runBoth((zoneName) => zonesEditShowAreaCmd(zoneName, 0));
-        if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
-        if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
       } else if (remainingSec === 1) {
-        // Just before "2" finishes: move away, set message 1, move back.
-        await runBoth((zoneName) => zonesEditPositionCmd(zoneName, ONEV1_ZONE_OFF_POS_COMMA));
-        await runBoth((zoneName) => zonesEditEnterMessageCmd(zoneName, 1));
+        // Right before doors open: show GO once and move zones to gates.
+        await runBoth((zoneName) => zonesEditEnterMessageGoCmd(zoneName));
         await runBoth((zoneName) => zonesEditShowAreaCmd(zoneName, 0));
         if (gate1Comma) await run(zonesEditPositionCmd(opts.zoneNameGate1, gate1Comma));
         if (gate2Comma) await run(zonesEditPositionCmd(opts.zoneNameGate2, gate2Comma));
@@ -280,12 +271,20 @@ async function openThenCloseDoors(
   port: number,
   password: string,
   gateFrequency: number,
-  broadcasterXyz: [number, number, number]
+  broadcasterXyz: [number, number, number],
+  onOpened?: () => Promise<void>
 ): Promise<void> {
   const [x, y, z] = broadcasterXyz;
   const spawnCmd = `rf.spawnfakebroadcaster ${gateFrequency} 1000 ${x} ${y} ${z}`;
   const spawnRes = await runWebRconCommand(rustServerId, host, port, password, spawnCmd);
   if (!spawnRes.ok) console.error(`[1v1] ${spawnCmd}: ${spawnRes.error}`);
+  if (onOpened) {
+    try {
+      await onOpened();
+    } catch (e) {
+      console.error("[1v1] onOpened hook failed:", e);
+    }
+  }
   await sleep(DOOR_OPEN_THEN_CLOSE_MS);
   const removeCmd = `rf.removefakeboardcaster`;
   const removeRes = await runWebRconCommand(rustServerId, host, port, password, removeCmd);
@@ -587,10 +586,8 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
       );
       if (zoneCountdown.createdZones) countdownZonesCreated = true;
 
-      // Must be deleted when doors open so the next round can create new zones cleanly.
-      // Deleting immediately before the RF door open avoids "1,3,2,1" carryover.
-      await deleteCountdownZonesIfCreated();
-      await openThenCloseDoors(rustServerId, host, port, password, gateFrequency, bcXyz);
+      // Delete zones as soon as doors open (after broadcaster spawn) so they never linger into the round.
+      await openThenCloseDoors(rustServerId, host, port, password, gateFrequency, bcXyz, deleteCountdownZonesIfCreated);
 
       const winnerSide = await onev1KillTracker.waitForRoundWinner(rustServerId);
       throwIfAborted(signal);

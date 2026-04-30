@@ -25,6 +25,7 @@ import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateMazeMessage } from "./announce.js";
 import { renderMazeEmbed } from "./render.js";
 import { runMazeEvent } from "./runner.js";
+import { runWebRconCommand } from "../rcon/webrcon.js";
 
 const LOBBY_MAX_MINUTES = 15;
 
@@ -162,6 +163,18 @@ async function openAutomatedMazeLobby(pool: Pool, client: Client, guildRowId: nu
     body: "Maze lobby is open. Join now!",
     tag: `maze-lobby-${lobby.eventId}`,
   });
+
+  // Maze-specific server tuning while lobby is open/announced (best-effort).
+  try {
+    const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+    if (srvFull) {
+      const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+      const res = await runWebRconCommand(rustServerId, srvFull.server_ip, srvFull.rcon_port, password, "server.corpsedespawn 10");
+      if (!res.ok) console.error(`[maze] corpsedespawn(10) failed: ${res.error}`);
+    }
+  } catch (e) {
+    console.error("[maze] corpsedespawn(10) lobby best-effort failed:", e);
+  }
 }
 
 async function processMazeLobbyPhase(

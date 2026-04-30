@@ -5,6 +5,14 @@ import { pool } from "../../db/pool.js";
 import { getLinkByDiscordUser } from "../../db/links.js";
 import { syncLinkedNicknameForUser } from "../../clans/nicknames.js";
 import { optInNicknameSync } from "../../db/nicknameSync.js";
+import { getMemberClan } from "../../db/clans.js";
+
+function buildNickname(linkedName: string, clanTag: string | null): string {
+  const cleanName = String(linkedName || "").trim();
+  const tag = clanTag ? String(clanTag).trim().toUpperCase() : "";
+  if (cleanName && tag) return `${cleanName} | ${tag}`.slice(0, 32);
+  return `🔗${cleanName}`.slice(0, 32);
+}
 
 export const syncMeCommand = {
   data: new SlashCommandBuilder()
@@ -34,6 +42,17 @@ export const syncMeCommand = {
 
     // Explicit opt-in for legacy users (and safe to call repeatedly).
     await optInNicknameSync(pool, guildRowId, interaction.user.id).catch(() => {});
+
+    const clan = await getMemberClan(pool, guildRowId, interaction.user.id).catch(() => null);
+    const expectedNick = buildNickname(link.ingameName, clan?.clanTag ?? null);
+
+    let beforeNick: string | null = null;
+    try {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      beforeNick = member.nickname ?? member.user.username ?? null;
+    } catch {
+      // ignore
+    }
 
     try {
       await syncLinkedNicknameForUser({
@@ -67,7 +86,19 @@ export const syncMeCommand = {
       embeds: [
         baseEmbed()
           .setTitle("Synced")
-          .setDescription(`You are linked as **${link.ingameName}** in this Discord.`),
+          .setDescription(
+            [
+              `✅ **Linked name:** **${link.ingameName}**`,
+              `🏷️ **Clan tag:** ${clan?.clanTag ? `**${String(clan.clanTag).toUpperCase()}**` : "_No clan tag (not in a clan)_"} `,
+              "",
+              `📝 **Expected nickname:** **${expectedNick}**`,
+              ...(beforeNick
+                ? [`🔎 **Before:** **${beforeNick}**`, `🔁 **After:** **${expectedNick}**`]
+                : []),
+              "",
+              "If your nickname didn’t change, the bot likely lacks **Manage Nicknames**, or role hierarchy blocks it.",
+            ].join("\n")
+          ),
       ],
     });
   },

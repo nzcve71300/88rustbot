@@ -56,6 +56,27 @@ async function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
   }
 }
 
+async function runRconWithRetries(
+  rustServerId: number,
+  host: string,
+  port: number,
+  password: string,
+  cmd: string,
+  attempts: number,
+  retryDelayMs: number,
+  signal: AbortSignal
+): Promise<{ ok: boolean; error?: string }> {
+  const max = Math.max(1, Math.floor(attempts));
+  for (let i = 1; i <= max; i++) {
+    if (signal.aborted) return { ok: false, error: "aborted" };
+    const r = await runWebRconCommand(rustServerId, host, port, password, cmd);
+    if (r.ok) return { ok: true };
+    if (i < max) await sleepAbortable(retryDelayMs, signal);
+    if (i === max) return { ok: false, error: r.error };
+  }
+  return { ok: false, error: "unknown" };
+}
+
 export type MazeInitialSpawnOpts = {
   pool: Pool;
   guildRowId: number;
@@ -100,13 +121,13 @@ export async function runMazeInitialSpawnWithZones(opts: MazeInitialSpawnOpts): 
 
         const name = quoteForRconArg(p.ingameName);
         const kitCmd = `kit givetoplayer "${quoteForRconArg(kit)}" "${name}"`;
-        const kitRes = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
+        const kitRes = await runRconWithRetries(rustServerId, host, port, password, kitCmd, 3, 250, signal);
         if (!kitRes.ok) {
           console.error(`[maze] kit failed for ${p.ingameName}: ${kitRes.error}`);
         }
 
         const tpCmd = teleportPosRotCommand(xyz, p.ingameName);
-        const tpRes = await runWebRconCommand(rustServerId, host, port, password, tpCmd);
+        const tpRes = await runRconWithRetries(rustServerId, host, port, password, tpCmd, 3, 250, signal);
         if (!tpRes.ok) {
           console.error(`[maze] teleportposrot failed for ${p.ingameName}: ${tpRes.error}`);
         } else {
@@ -201,12 +222,21 @@ export async function runMazeRespawnWithZone(opts: MazeRespawnOpts): Promise<num
   const kit = kitName.trim();
   const nameQ = quoteForRconArg(ingameName.trim());
   const kitCmd = `kit givetoplayer "${quoteForRconArg(kit)}" "${nameQ}"`;
-  const kitRes = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
+  const kitRes = await runRconWithRetries(rustServerId, host, port, password, kitCmd, 3, 250, signal);
   if (!kitRes.ok) {
     console.error(`[maze] respawn kit failed for ${ingameName}: ${kitRes.error}`);
   }
 
-  const tpRes = await runWebRconCommand(rustServerId, host, port, password, teleportPosRotCommand(xyz, ingameName));
+  const tpRes = await runRconWithRetries(
+    rustServerId,
+    host,
+    port,
+    password,
+    teleportPosRotCommand(xyz, ingameName),
+    3,
+    250,
+    signal
+  );
   if (!tpRes.ok) {
     console.error(`[maze] respawn teleport failed for ${ingameName}: ${tpRes.error}`);
   } else {

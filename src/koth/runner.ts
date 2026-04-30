@@ -46,6 +46,9 @@ const WAVE_GAP_MS = parseMsEnv("KOTH_WAVE_GAP_MS", 10_000);
 const BROADCASTER_PAUSE_MS = parseMsEnv("KOTH_BROADCASTER_PAUSE_MS", 5_000);
 /** After teleport + kits: wait before doors / broadcaster, then wave duration timer. */
 const KOTH_DOOR_DELAY_MS = getKothDoorDelayMs();
+/** Retry kit+teleport a few times to reduce missed RCON actions. */
+const TELEPORT_KIT_MAX_ATTEMPTS = parseMsEnv("KOTH_TELEPORT_KIT_MAX_ATTEMPTS", 3);
+const TELEPORT_KIT_RETRY_MS = parseMsEnv("KOTH_TELEPORT_KIT_RETRY_MS", 250);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -170,13 +173,6 @@ async function giveKitsAndTeleports(opts: {
   await Promise.all(
     participants.map(async (p) => {
       if (signal.aborted) throw new Error("KOTH aborted");
-      const name = quoteForRconArg(p.ingameName);
-      const kitCmd = `kit givetoplayer "${quoteForRconArg(kit)}" "${name}"`;
-      const kitRes = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
-      if (!kitRes.ok) {
-        console.error(`[koth] kit failed for ${p.ingameName}: ${kitRes.error}`);
-      }
-
       const coordStr = await getGateCoord(pool, guildRowId, rustServerId, p.gateNumber);
       if (!coordStr) {
         console.warn(
@@ -190,12 +186,22 @@ async function giveKitsAndTeleports(opts: {
         return;
       }
       const posArg = formatTeleportPosComma(xyz);
+
+      const name = quoteForRconArg(p.ingameName);
+      const kitCmd = `kit givetoplayer "${quoteForRconArg(kit)}" "${name}"`;
       const tpCmd = `global.teleportpos ${posArg} "${name}"`;
-      const tpRes = await runWebRconCommand(rustServerId, host, port, password, tpCmd);
-      if (!tpRes.ok) {
-        console.error(`[koth] teleport failed for ${p.ingameName}: ${tpRes.error} (cmd: ${tpCmd})`);
-      } else {
-        console.log(`[koth] teleport ok: ${p.ingameName} → ${posArg}`);
+
+      for (let attempt = 1; attempt <= TELEPORT_KIT_MAX_ATTEMPTS; attempt++) {
+        if (signal.aborted) throw new Error("KOTH aborted");
+        const kitRes = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
+        const tpRes = await runWebRconCommand(rustServerId, host, port, password, tpCmd);
+        if (kitRes.ok && tpRes.ok) {
+          console.log(`[koth] teleport ok: ${p.ingameName} → ${posArg}`);
+          return;
+        }
+        if (!kitRes.ok) console.error(`[koth] kit failed for ${p.ingameName}: ${kitRes.error}`);
+        if (!tpRes.ok) console.error(`[koth] teleport failed for ${p.ingameName}: ${tpRes.error} (cmd: ${tpCmd})`);
+        if (attempt < TELEPORT_KIT_MAX_ATTEMPTS) await sleepAbortable(TELEPORT_KIT_RETRY_MS, signal);
       }
     })
   );

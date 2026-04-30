@@ -443,13 +443,16 @@ class MazeKillTracker {
     this.pendingRespawn.delete(key);
     this.lastMazeVictimDeathAt.delete(key);
 
+    // Mark immediately so duplicate/late console lines can't trigger multiple teleports for the same death window.
+    const trackKey = `${a.rustServerId}:${pr.victimRow.discordUserId}`;
+    this.lastRespawnTeleportAt.set(trackKey, now);
+
     if (!(await this.delayBeforeRespawnRcon(a.abortSignal))) return;
 
     console.log(
       `[maze] respawn: teleporting ${pr.victimRow.ingameName} to maze spawn (zone + kit + global.teleportposrot)`
     );
 
-    const trackKey = `${a.rustServerId}:${pr.victimRow.discordUserId}`;
     const avoidSlot = this.lastRespawnSpawnByPlayer.get(trackKey) ?? null;
     const usedSlot = await runMazeRespawnWithZone({
       pool,
@@ -465,7 +468,6 @@ class MazeKillTracker {
       signal: a.abortSignal,
     });
     if (usedSlot != null) this.lastRespawnSpawnByPlayer.set(trackKey, usedSlot);
-    this.lastRespawnTeleportAt.set(trackKey, Date.now());
   }
 
   private async queuePendingRespawn(rustServerId: number, victimRow: MazeRosterKillRow): Promise<void> {

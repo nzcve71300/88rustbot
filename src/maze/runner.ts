@@ -23,6 +23,7 @@ import { mazeKillTracker } from "./killTracker.js";
 import { runMazeInitialSpawnWithZones } from "./mazeZones.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import { rewardPlayerLucids } from "../rewards/eventRewards.js";
+import { runWebRconCommand } from "../rcon/webrcon.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -142,6 +143,14 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
   const respawn = (respRows[0] as { r: number } | undefined)?.r === 1;
 
   try {
+    // Maze tuning for the duration of the event (best-effort).
+    try {
+      const res = await runWebRconCommand(rustServerId, host, port, password, "server.corpsedespawn 10");
+      if (!res.ok) console.error(`[maze] corpsedespawn(10) failed: ${res.error}`);
+    } catch (e) {
+      console.error("[maze] corpsedespawn(10) start best-effort failed:", e);
+    }
+
     const participants = await listMazeParticipantsForTeleport(pool, guildRowId, eventId);
     const eligibleForRewards = participants.length / Math.max(1, spawnPointCount) >= 0.6;
 
@@ -215,6 +224,14 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
     }
 
     await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, rustServerId, eventId);
+
+    // Restore default despawn once the event is fully over (best-effort).
+    try {
+      const res = await runWebRconCommand(rustServerId, host, port, password, "server.corpsedespawn 120");
+      if (!res.ok) console.error(`[maze] corpsedespawn(120) failed: ${res.error}`);
+    } catch (e) {
+      console.error("[maze] corpsedespawn(120) end best-effort failed:", e);
+    }
 
     const cfgAfter = await getMazeConfig(pool, guildRowId, rustServerId);
     const doneCh = await client.channels.fetch(announcementChannelId);

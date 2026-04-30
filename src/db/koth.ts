@@ -252,7 +252,9 @@ export function getKothDoorDelayMs(): number {
   const v = process.env.KOTH_DOOR_DELAY_MS?.trim() ?? process.env.KOTH_PRESTART_MS?.trim();
   if (v === undefined || v === "") return 60_000;
   const n = Number.parseInt(v, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 60_000;
+  // Enforce minimum 60s so "15s" env configs can't accidentally shorten the pre-door wait.
+  if (Number.isFinite(n) && n >= 0) return Math.max(60_000, n);
+  return 60_000;
 }
 
 /** @deprecated Use getKothDoorDelayMs */

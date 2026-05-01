@@ -304,6 +304,8 @@ export async function handleAdminPanelRoutes(
       const radiationDamage = Number(body.radiationDamage ?? 0);
       const allowBuildingDamage = parse01(body.isBuildingDamageAllowed);
       const allowBuilding = parse01(body.isBuildingAllowed);
+      const showChatMessage = parse01(body.showChatMessage);
+      const showArea = parse01(body.showArea);
       const colorRgb = body.zoneColor != null ? parseRgb(body.zoneColor) : null;
       const enterMessage = body.enterMessage != null ? String(body.enterMessage).trim() : "";
       const leaveMessage = body.leaveMessage != null ? String(body.leaveMessage).trim() : "";
@@ -324,7 +326,7 @@ export async function handleAdminPanelRoutes(
         json(res, 400, { ok: false, error: "Zone size must be 1–100." });
         return true;
       }
-      if (allowPvp == null || allowNpc == null || allowBuildingDamage == null || allowBuilding == null) {
+      if (allowPvp == null || allowNpc == null || allowBuildingDamage == null || allowBuilding == null || showChatMessage == null || showArea == null) {
         json(res, 400, { ok: false, error: "Yes/No fields must be numeric 0 or 1." });
         return true;
       }
@@ -349,6 +351,8 @@ export async function handleAdminPanelRoutes(
         radiationDamage: Math.floor(radiationDamage),
         allowBuildingDamage01: allowBuildingDamage,
         allowBuilding01: allowBuilding,
+        showChatMessage01: showChatMessage,
+        showArea01: showArea,
         colorRgb,
         enterMessage: enterMessage ? enterMessage : null,
         leaveMessage: leaveMessage ? leaveMessage : null,

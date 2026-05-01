@@ -676,6 +676,8 @@ export async function ensureSchema(): Promise<void> {
         radiation_damage INT UNSIGNED NOT NULL DEFAULT 0,
         allow_buildingdamage TINYINT(1) NOT NULL DEFAULT 0,
         allow_building TINYINT(1) NOT NULL DEFAULT 0,
+        show_chat_message TINYINT(1) NOT NULL DEFAULT 1,
+        show_area TINYINT(1) NOT NULL DEFAULT 0,
         color_rgb VARCHAR(32) NULL,
         enter_message TEXT NULL,
         leave_message TEXT NULL,
@@ -689,6 +691,9 @@ export async function ensureSchema(): Promise<void> {
         CONSTRAINT fk_event_zone_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await ignoreDup("ALTER TABLE event_zone_configs ADD COLUMN show_chat_message TINYINT(1) NOT NULL DEFAULT 1");
+    await ignoreDup("ALTER TABLE event_zone_configs ADD COLUMN show_area TINYINT(1) NOT NULL DEFAULT 0");
 
     await ignoreDup("ALTER TABLE docked_cargo_configs ADD COLUMN announcement_role_id VARCHAR(32) NULL");
     await ignoreDup(

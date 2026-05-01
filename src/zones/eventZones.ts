@@ -84,6 +84,8 @@ export async function applyEventZoneConfigIfPresent(opts: {
     radiationDamage: want.radiationDamage,
     allowBuildingDamage01: want.allowBuildingDamage01,
     allowBuilding01: want.allowBuilding01,
+    showChatMessage01: (want as any).showChatMessage01 ?? 1,
+    showArea01: (want as any).showArea01 ?? 0,
     colorRgb: want.colorRgb,
     enterMessage: want.enterMessage,
     leaveMessage: want.leaveMessage,
@@ -118,6 +120,8 @@ export async function applyEventZoneConfigIfPresent(opts: {
     ["radiationdamage", String(Math.floor(want.radiationDamage))],
     ["allowbuildingdamage", String(want.allowBuildingDamage01)],
     ["allowbuilding", String(want.allowBuilding01)],
+    ["showchatmessage", String((want as any).showChatMessage01 ?? 1)],
+    ["showarea", String((want as any).showArea01 ?? 0)],
   ];
 
   for (const [setting, value] of edits) {

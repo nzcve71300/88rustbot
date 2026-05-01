@@ -16,6 +16,8 @@ export type EventZoneConfig = {
   radiationDamage: number;
   allowBuildingDamage01: 0 | 1;
   allowBuilding01: 0 | 1;
+  showChatMessage01: 0 | 1;
+  showArea01: 0 | 1;
   colorRgb: string | null;
   enterMessage: string | null;
   leaveMessage: string | null;
@@ -37,6 +39,8 @@ export function hashZoneConfigForApply(c: Omit<EventZoneConfig, "created" | "las
     radiationDamage: c.radiationDamage,
     allowBuildingDamage01: c.allowBuildingDamage01,
     allowBuilding01: c.allowBuilding01,
+    showChatMessage01: c.showChatMessage01,
+    showArea01: c.showArea01,
     colorRgb: c.colorRgb,
     enterMessage: c.enterMessage,
     leaveMessage: c.leaveMessage,
@@ -57,6 +61,8 @@ function rowToConfig(r: any): EventZoneConfig {
     radiationDamage: Number(r.radiationDamage),
     allowBuildingDamage01: Number(r.allowBuildingDamage01) === 1 ? 1 : 0,
     allowBuilding01: Number(r.allowBuilding01) === 1 ? 1 : 0,
+    showChatMessage01: Number(r.showChatMessage01) === 1 ? 1 : 0,
+    showArea01: Number(r.showArea01) === 1 ? 1 : 0,
     colorRgb: r.colorRgb != null && String(r.colorRgb).trim() ? String(r.colorRgb) : null,
     enterMessage: r.enterMessage != null && String(r.enterMessage).trim() ? String(r.enterMessage) : null,
     leaveMessage: r.leaveMessage != null && String(r.leaveMessage).trim() ? String(r.leaveMessage) : null,
@@ -88,6 +94,8 @@ export async function getEventZoneConfig(
        radiation_damage AS radiationDamage,
        allow_buildingdamage AS allowBuildingDamage01,
        allow_building AS allowBuilding01,
+       show_chat_message AS showChatMessage01,
+       show_area AS showArea01,
        color_rgb AS colorRgb,
        enter_message AS enterMessage,
        leave_message AS leaveMessage,
@@ -118,6 +126,7 @@ export async function upsertEventZoneConfig(
        guild_id, rust_server_id, event_type, profile,
        zone_name, pos_x, pos_y, pos_z, rotation, size,
        allow_pvpdamage, allow_npcdamage, radiation_damage, allow_buildingdamage, allow_building,
+       show_chat_message, show_area,
        color_rgb, enter_message, leave_message,
        created, last_applied_hash
      )
@@ -125,6 +134,7 @@ export async function upsertEventZoneConfig(
        :gid, :sid, :etype, :profile,
        :name, :x, :y, :z, :rot, :size,
        :pvp, :npc, :rad, :bdmg, :bld,
+       :chat, :area,
        :color, :enter, :leave,
        :created, :hash
      )
@@ -140,6 +150,8 @@ export async function upsertEventZoneConfig(
        radiation_damage = VALUES(radiation_damage),
        allow_buildingdamage = VALUES(allow_buildingdamage),
        allow_building = VALUES(allow_building),
+       show_chat_message = VALUES(show_chat_message),
+       show_area = VALUES(show_area),
        color_rgb = VALUES(color_rgb),
        enter_message = VALUES(enter_message),
        leave_message = VALUES(leave_message),
@@ -161,6 +173,8 @@ export async function upsertEventZoneConfig(
       rad: cfg.radiationDamage,
       bdmg: cfg.allowBuildingDamage01,
       bld: cfg.allowBuilding01,
+      chat: cfg.showChatMessage01,
+      area: cfg.showArea01,
       color: cfg.colorRgb,
       enter: cfg.enterMessage,
       leave: cfg.leaveMessage,

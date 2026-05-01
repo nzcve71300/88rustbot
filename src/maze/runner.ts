@@ -9,7 +9,6 @@ import {
 import {
   finishMazeEvent,
   getMazeEventTopKillerWithLink,
-  listMazeKillLogForEvent,
   listMazeKillsDetailedForEvent,
   listMazeParticipantsForTeleport,
   listMazeSpawnViews,
@@ -39,36 +38,23 @@ async function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
   }
 }
 
-function formatMazeKillLogLine(r: import("../db/maze.js").MazeKillLogRow): string {
-  const k = `<@${r.killerDiscordUserId}>`;
-  if (r.victimDiscordUserId) {
-    return `• ${k} eliminated <@${r.victimDiscordUserId}>`;
-  }
-  return `• ${k} eliminated ${r.victimLabel}`;
-}
+/** Maze winner payout; stored in `store_user_balances` (same balance the Lucid Store site uses). */
+const MAZE_WINNER_LUCIDS = 15;
 
 async function postMazeEndEmbed(
   client: Client,
   pool: Pool,
-  guildRowId: number,
   channelId: string,
-  eventId: number
+  eventId: number,
+  lucidsBlock: string
 ): Promise<void> {
   const ch = await client.channels.fetch(channelId);
   if (!ch || !(ch instanceof TextChannel)) return;
 
   const totalKills = await sumMazeTotalKillsForEvent(pool, eventId);
   const players = await listMazeKillsDetailedForEvent(pool, eventId);
-  const killLog = await listMazeKillLogForEvent(pool, guildRowId, eventId);
 
   const leaderboardBlock = formatRankedLeaderboardLines(players);
-
-  const logSlice = killLog.slice(0, 25);
-  let logBlock =
-    logSlice.length === 0
-      ? "_No individual kill lines logged._"
-      : logSlice.map(formatMazeKillLogLine).join("\n");
-  if (killLog.length > 25) logBlock += `\n_${killLog.length - 25} more in the log._`;
 
   const description = truncateEmbedDescription(
     [
@@ -77,8 +63,7 @@ async function postMazeEndEmbed(
       "🏆 **Leaderboard**",
       leaderboardBlock,
       "",
-      "📜 **Kill Log**",
-      logBlock,
+      lucidsBlock,
       "",
       poweredByFooterBlock(),
     ].join("\n")
@@ -198,7 +183,32 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
     await sleepAbortable(durationMinutes * 60_000, abort.signal);
 
     await mazeKillTracker.drain(rustServerId);
-    await postMazeEndEmbed(client, pool, guildRowId, announcementChannelId, eventId);
+
+    // Apply Lucid Store credits while maze_events / maze_kills rows still exist (CASCADE deletes kills with the event row).
+    let lucidsBlock = "";
+    try {
+      const leaderboardPlayers = await listMazeKillsDetailedForEvent(pool, eventId);
+      const winner = leaderboardPlayers[0];
+      if (!eligibleForRewards) {
+        lucidsBlock = [
+          "💎 **Lucids (Lucid Store)**",
+          `_Not awarded — lobby fill was below **60%** of spawn slots (${participants.length}/${spawnPointCount})._`,
+        ].join("\n");
+      } else if (!winner || winner.kills < 1) {
+        lucidsBlock = ["💎 **Lucids (Lucid Store)**", "_Not awarded — no kills recorded on the leaderboard._"].join("\n");
+      } else {
+        await rewardPlayerLucids(pool, winner.discordUserId, MAZE_WINNER_LUCIDS);
+        lucidsBlock = [
+          "💎 **Lucids (Lucid Store)**",
+          `<@${winner.discordUserId}> was credited **${MAZE_WINNER_LUCIDS} Lucids** (same balance as the website store).`,
+        ].join("\n");
+      }
+    } catch (e) {
+      console.error("[maze rewards] failed:", e);
+      lucidsBlock = ["💎 **Lucids (Lucid Store)**", "_Unable to apply rewards — check bot logs._"].join("\n");
+    }
+
+    await postMazeEndEmbed(client, pool, announcementChannelId, eventId, lucidsBlock);
 
     try {
       const top = await getMazeEventTopKillerWithLink(pool, guildRowId, eventId);
@@ -257,19 +267,6 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
     const cfgAfter = await getMazeConfig(pool, guildRowId, rustServerId);
     const doneCh = await client.channels.fetch(announcementChannelId);
     if (doneCh && doneCh instanceof TextChannel) {
-      let rewardLine = "";
-      try {
-        if (eligibleForRewards) {
-          const players = await listMazeKillsDetailedForEvent(pool, eventId);
-          const winner = players[0];
-          if (winner && winner.kills > 0) {
-            await rewardPlayerLucids(pool, winner.discordUserId, 15);
-            rewardLine = `The clan member **<@${winner.discordUserId}>** got rewarded with **15 Lucids**.`;
-          }
-        }
-      } catch (e) {
-        console.error("[maze rewards] failed:", e);
-      }
       const nextLine =
         cfgAfter?.automationStarted && cfgAfter.howOftenHours && cfgAfter.howOftenHours > 0
           ? "The next **automatic lobby** is scheduled per your **How often** interval."
@@ -278,7 +275,6 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
         [
           `**${serverNickname}** — the Maze event is complete.`,
           "",
-          ...(rewardLine ? [rewardLine, ""] : []),
           nextLine,
           "",
           poweredByFooterBlock(),

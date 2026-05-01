@@ -366,7 +366,7 @@ export async function countAssignedGatesForEvent(pool: Pool, eventId: number): P
 }
 
 export async function setKothLobbyEndsInMinutes(pool: Pool, eventId: number, minutes: number): Promise<void> {
-  const mins = Math.max(1, Math.floor(minutes));
+  const mins = Math.max(0, Math.floor(minutes));
   await pool.query<ResultSetHeader>(
     `UPDATE koth_events SET lobby_ends_at = DATE_ADD(NOW(), INTERVAL :mins MINUTE) WHERE id = :eid`,
     { eid: eventId, mins }

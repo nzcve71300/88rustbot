@@ -7,10 +7,10 @@ import {
 } from "discord.js";
 import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
-import { getMazeConfig, isMazeAutomationConfigComplete } from "../../db/maze.js";
+import { getActiveMazeEvent, getMazeConfig, isMazeAutomationConfigComplete, setMazeLobbyEndsInMinutes } from "../../db/maze.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
-import { startMazeAutomation } from "../../maze/automation.js";
+import { startMazeAutomation, startMazeMatchFromLobby } from "../../maze/automation.js";
 import { mazeRestartCustomId } from "../../maze/startInteractions.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
@@ -91,19 +91,42 @@ export const mazeStartCommand = {
       return;
     }
 
-    const started = await startMazeAutomation(pool, guildRowId, serverId);
-    if (!started.ok) {
-      await interaction.reply({ content: started.error ?? "Could not start.", ephemeral: true });
+    // Automation is OFF: if a lobby is currently open, close it and start the match without enabling automation.
+    const active = await getActiveMazeEvent(pool, guildRowId, serverId);
+    if (active?.status === "lobby") {
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        await setMazeLobbyEndsInMinutes(pool, active.id, 0);
+        const started = await startMazeMatchFromLobby(pool, interaction.client, guildRowId, serverId, active.id);
+        if (!started) {
+          await interaction.editReply({
+            embeds: [baseEmbed().setTitle("Could not start").setDescription("Failed to start the Maze from the lobby. Check RCON/config and try again.")],
+          });
+          return;
+        }
+        await interaction.editReply({
+          embeds: [
+            baseEmbed()
+              .setTitle("Maze started")
+              .setDescription("Lobby closed — the Maze match is starting now. (Automation remains **OFF**.)"),
+          ],
+        });
+      } catch (e) {
+        console.error("[maze-start] failed to start from lobby:", e);
+        await interaction.editReply({
+          embeds: [baseEmbed().setTitle("Error").setDescription("Something went wrong starting the Maze. Check bot logs.")],
+        });
+      }
       return;
     }
 
     await interaction.reply({
       embeds: [
         baseEmbed()
-          .setTitle("Maze automation started")
+          .setTitle("Automation is off")
           .setDescription(
-            "The bot will open lobbies on your **how often** schedule. Each lobby waits up to **15 minutes** (or until all spawn slots fill). " +
-              "If nobody joins before time is up, the lobby is **cancelled** and the next run is scheduled."
+            "Maze automation is currently **OFF**. If you want automatic lobbies, enable automation on the website.\n\n" +
+              "If a lobby is open, re-run **/maze-start** to close the lobby and start the match."
           ),
       ],
       ephemeral: true,

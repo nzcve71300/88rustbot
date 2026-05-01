@@ -8,9 +8,9 @@ import {
 import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
-import { getNuketownConfig } from "../../db/nuketown.js";
+import { getActiveNuketownEventMeta, getNuketownConfig, setNuketownLobbyEndsAtNow } from "../../db/nuketown.js";
 import { pool } from "../../db/pool.js";
-import { startNuketownAutomation } from "../../nuketown/automation.js";
+import { startNuketownAutomation, startNuketownMatchFromLobby } from "../../nuketown/automation.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 
@@ -151,19 +151,44 @@ export const nuketownStartCommand = {
       return;
     }
 
-    const started = await startNuketownAutomation(pool, guildRowId, serverId, mode);
-    if (!started.ok) {
-      await interaction.reply({ content: started.error ?? "Could not start.", ephemeral: true });
+    // Automation is OFF: if a lobby is currently open for this mode, close it and start the match without enabling automation.
+    const meta = await getActiveNuketownEventMeta(pool, guildRowId, serverId);
+    if (meta?.status === "lobby" && meta.mode === modeKey(mode)) {
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        await setNuketownLobbyEndsAtNow(pool, meta.id);
+        const ok = await startNuketownMatchFromLobby(pool, interaction.client, guildRowId, serverId, meta.id, mode);
+        if (!ok) {
+          await interaction.editReply({
+            embeds: [baseEmbed().setTitle("Could not start").setDescription("Failed to start Nuketown from the lobby. Check RCON/config and try again.")],
+          });
+          return;
+        }
+        await interaction.editReply({
+          embeds: [
+            baseEmbed()
+              .setTitle("Nuketown started")
+              .setDescription(
+                `Lobby closed — **${mode === "tournament" ? "Nuketown Tournament" : "Nuketown"}** is starting now. (Automation remains **OFF**.)`
+              ),
+          ],
+        });
+      } catch (e) {
+        console.error("[nuketown-start] failed to start from lobby:", e);
+        await interaction.editReply({
+          embeds: [baseEmbed().setTitle("Error").setDescription("Something went wrong starting Nuketown. Check bot logs.")],
+        });
+      }
       return;
     }
 
     await interaction.reply({
       embeds: [
         baseEmbed()
-          .setTitle("Nuketown automation started")
+          .setTitle("Automation is off")
           .setDescription(
-            `The bot will open **${mode === "tournament" ? "Nuketown Tournament" : "Nuketown"}** lobbies on your **how often** schedule. ` +
-              "Each lobby waits up to **15 minutes** (or until all clans fill)."
+            `Nuketown automation is currently **OFF** for **${mode === "tournament" ? "Tournament" : "Nuketown"}**. Enable automation on the website if you want automatic lobbies.\n\n` +
+              "If a lobby is open, re-run **/nuketown-start** to close the lobby and start the match."
           ),
       ],
       ephemeral: true,

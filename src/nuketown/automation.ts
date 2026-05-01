@@ -121,7 +121,7 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
   });
 }
 
-async function startMatchFromLobby(
+export async function startNuketownMatchFromLobby(
   pool: Pool,
   client: Client,
   guildRowId: number,
@@ -240,7 +240,7 @@ async function processLobbyPhase(pool: Pool, client: Client, guildRowId: number,
     return;
   }
 
-  const ok = await startMatchFromLobby(pool, client, guildRowId, rustServerId, meta2.id, mode);
+  const ok = await startNuketownMatchFromLobby(pool, client, guildRowId, rustServerId, meta2.id, mode);
   if (!ok) {
     await stopNuketownAutomation(pool, guildRowId, rustServerId, mode);
   }

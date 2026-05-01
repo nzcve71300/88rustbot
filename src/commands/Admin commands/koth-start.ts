@@ -7,10 +7,10 @@ import {
 } from "discord.js";
 import { memberHasAdminRole } from "../../admin/guildAdmin.js";
 import { ADMIN_ROLE_NAME } from "../../constants.js";
-import { getKothConfig, isKothAutomationConfigComplete } from "../../db/koth.js";
+import { getActiveKothEvent, getKothConfig, isKothAutomationConfigComplete, setKothLobbyEndsInMinutes } from "../../db/koth.js";
 import { getOrCreateGuildRow } from "../../db/guilds.js";
 import { pool } from "../../db/pool.js";
-import { startKothAutomation } from "../../koth/automation.js";
+import { startKothAutomation, startKothMatchFromLobby } from "../../koth/automation.js";
 import { kothRestartCustomId } from "../../koth/startInteractions.js";
 import { baseEmbed } from "../../embeds/standard.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
@@ -90,19 +90,42 @@ export const kothStartCommand = {
       return;
     }
 
-    const started = await startKothAutomation(pool, guildRowId, serverId);
-    if (!started.ok) {
-      await interaction.reply({ content: started.error ?? "Could not start.", ephemeral: true });
+    // Automation is OFF: if a lobby is currently open, close it and start the match without enabling automation.
+    const active = await getActiveKothEvent(pool, guildRowId, serverId);
+    if (active?.status === "lobby") {
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        await setKothLobbyEndsInMinutes(pool, active.id, 0);
+        const started = await startKothMatchFromLobby(pool, interaction.client, guildRowId, serverId, active.id);
+        if (!started) {
+          await interaction.editReply({
+            embeds: [baseEmbed().setTitle("Could not start").setDescription("Failed to start KOTH from the lobby. Check RCON/config and try again.")],
+          });
+          return;
+        }
+        await interaction.editReply({
+          embeds: [
+            baseEmbed()
+              .setTitle("KOTH started")
+              .setDescription("Lobby closed — KOTH is starting now. (Automation remains **OFF**.)"),
+          ],
+        });
+      } catch (e) {
+        console.error("[koth-start] failed to start from lobby:", e);
+        await interaction.editReply({
+          embeds: [baseEmbed().setTitle("Error").setDescription("Something went wrong starting KOTH. Check bot logs.")],
+        });
+      }
       return;
     }
 
     await interaction.reply({
       embeds: [
         baseEmbed()
-          .setTitle("KOTH automation started")
+          .setTitle("Automation is off")
           .setDescription(
-            "The bot will open lobbies on your **how often** schedule. Each lobby waits up to **15 minutes** (or until all gates fill). " +
-              "If gates are not full after 15 minutes, the lobby is **cancelled** unless at least **50%** of gates have clans."
+            "KOTH automation is currently **OFF**. If you want automatic lobbies, enable automation on the website.\n\n" +
+              "If a lobby is open, re-run **/koth-start** to close the lobby and start the match."
           ),
       ],
       ephemeral: true,

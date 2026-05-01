@@ -1,4 +1,8 @@
 // Using built-in fetch (Node 18+)
+const mysql = require("mysql2/promise");
+const { validateCart } = require("./_loadKitsCatalog");
+const { fingerprintFromValidatedCart, round2 } = require("./_checkoutHybrid");
+const { mysqlConnectionOptions } = require("./_enqueueStoreFulfillment");
 
 exports.handler = async (event, context) => {
   // Only allow POST requests
@@ -30,7 +34,7 @@ exports.handler = async (event, context) => {
       };
     }
 
-    const { items, total } = requestBody;
+    const { items, total, sessionToken: sessionTokenRaw, userId: userIdRaw } = requestBody;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       console.error('Invalid items:', items);
@@ -44,15 +48,127 @@ exports.handler = async (event, context) => {
       };
     }
 
-    if (!total || typeof total !== 'number' || total <= 0) {
-      console.error('Invalid total:', total);
+    let validated;
+    try {
+      validated = validateCart(items);
+    } catch (catalogErr) {
+      console.error('[create-paypal-order] catalog / validateCart error:', catalogErr);
+      return {
+        statusCode: 503,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          error: 'Store catalog unavailable',
+          message: catalogErr?.message || String(catalogErr),
+        }),
+      };
+    }
+    if (!validated.ok) {
       return {
         statusCode: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: validated.error || 'Invalid cart' }),
+      };
+    }
+
+    const sessionToken = String(sessionTokenRaw || "").trim();
+    const requestUserId = String(userIdRaw || "").trim();
+
+    let validatedItemsForPaypal = validated.lines.map((line) => {
+      const name = `[${line.kind === 'one-time' ? 'One Time' : 'Lifetime'}] ${line.name}`.substring(0, 127);
+      return {
+        name,
+        quantity: String(line.quantity),
+        unit_amount: {
+          currency_code: 'EUR',
+          value: line.priceEur.toFixed(2),
         },
+      };
+    });
+
+    let paypalTotalNum = validatedItemsForPaypal.reduce((sum, item) => {
+      return sum + parseFloat(item.unit_amount.value) * parseInt(item.quantity, 10);
+    }, 0);
+
+    if (sessionToken) {
+      let conn = null;
+      try {
+        conn = await mysql.createConnection(mysqlConnectionOptions());
+        const [sessRows] = await conn.execute(
+          `SELECT CAST(discord_id AS CHAR) AS discord_id FROM store_sessions WHERE session_token = ? AND expires_at > NOW() LIMIT 1`,
+          [sessionToken]
+        );
+        if (Array.isArray(sessRows) && sessRows.length > 0) {
+          const sid = String(sessRows[0].discord_id);
+          if (requestUserId && requestUserId !== sid) {
+            await conn.end();
+            return {
+              statusCode: 403,
+              headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+              body: JSON.stringify({ error: 'Session does not match this Discord account.' }),
+            };
+          }
+          const fp = fingerprintFromValidatedCart(validated);
+          const [prRows] = await conn.execute(
+            `SELECT remainder_eur, cart_fingerprint FROM checkout_paypal_lucid_prepayment WHERE discord_user_id = ? LIMIT 1`,
+            [sid]
+          );
+          if (Array.isArray(prRows) && prRows.length > 0) {
+            const pr = prRows[0];
+            if (String(pr.cart_fingerprint) !== fp) {
+              await conn.end();
+              return {
+                statusCode: 400,
+                headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+                body: JSON.stringify({
+                  error:
+                    'Your cart changed after applying Lucids. Change your cart back or click checkout Lucids reset (edit cart), then try again.',
+                }),
+              };
+            }
+            paypalTotalNum = round2(Number(pr.remainder_eur));
+            const ps = paypalTotalNum.toFixed(2);
+            validatedItemsForPaypal = [
+              {
+                name: 'Lucid Store order (Lucids balance applied)',
+                quantity: '1',
+                unit_amount: {
+                  currency_code: 'EUR',
+                  value: ps,
+                },
+              },
+            ];
+          }
+        }
+        await conn.end();
+      } catch (dbErr) {
+        if (conn) await conn.end().catch(() => {});
+        console.error('[create-paypal-order] Lucids prepayment lookup:', dbErr);
+        return {
+          statusCode: 503,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({
+            error: 'Could not verify Lucids checkout credit',
+            message: String(dbErr?.message || dbErr),
+          }),
+        };
+      }
+    }
+
+    const paypalTotalStr = paypalTotalNum.toFixed(2);
+
+    const clientTotal = typeof total === 'number' ? total : parseFloat(total);
+    if (!Number.isFinite(clientTotal) || clientTotal <= 0) {
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({ error: 'Invalid total amount' }),
+      };
+    }
+    if (Math.abs(clientTotal - paypalTotalNum) > 0.02) {
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Cart total mismatch — refresh the store and try again.' }),
       };
     }
 
@@ -194,37 +310,10 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Validate and prepare items
-    const validatedItems = items.map((item) => {
-      const price = typeof item.price === 'number' ? item.price : parseFloat(item.price);
-      const quantity = typeof item.quantity === 'number' ? item.quantity : parseInt(item.quantity, 10);
-      
-      if (isNaN(price) || price <= 0) {
-        throw new Error(`Invalid price for item: ${item.name}`);
-      }
-      if (isNaN(quantity) || quantity <= 0) {
-        throw new Error(`Invalid quantity for item: ${item.name}`);
-      }
-      
-      return {
-        name: String(item.name || 'Unnamed Item').substring(0, 127), // PayPal max length
-        quantity: String(quantity),
-        unit_amount: {
-          currency_code: 'EUR',
-          value: price.toFixed(2),
-        },
-      };
-    });
-
-    // Calculate item total to verify
-    const calculatedTotal = validatedItems.reduce((sum, item) => {
-      return sum + (parseFloat(item.unit_amount.value) * parseInt(item.quantity, 10));
-    }, 0);
-
     console.log('Order calculation:', {
-      providedTotal: total,
-      calculatedTotal: calculatedTotal.toFixed(2),
-      itemCount: validatedItems.length,
+      catalogTotalEur: validated.totalEur,
+      paypalTotalStr,
+      itemCount: validatedItemsForPaypal.length,
     });
 
     // Create order
@@ -234,15 +323,15 @@ exports.handler = async (event, context) => {
         {
           amount: {
             currency_code: 'EUR',
-            value: total.toFixed(2),
+            value: paypalTotalStr,
             breakdown: {
               item_total: {
                 currency_code: 'EUR',
-                value: calculatedTotal.toFixed(2),
+                value: paypalTotalStr,
               },
             },
           },
-          items: validatedItems,
+          items: validatedItemsForPaypal,
         },
       ],
       application_context: {
@@ -255,9 +344,8 @@ exports.handler = async (event, context) => {
     };
 
     console.log('Creating PayPal order with data:', {
-      itemCount: validatedItems.length,
-      total: total,
-      calculatedTotal: calculatedTotal.toFixed(2),
+      itemCount: validatedItemsForPaypal.length,
+      totalEur: paypalTotalStr,
       currency: 'EUR',
     });
 

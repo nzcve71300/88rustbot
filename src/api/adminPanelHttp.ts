@@ -813,6 +813,14 @@ export async function handleAdminPanelRoutes(
     return true;
   }
 
+  if (rest === "nuketown/config" && method === "GET") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const mode = url.searchParams.get("mode") === "tournament" ? "tournament" : "nuketown";
+    const cfg = await getNuketownConfig(pool, guildRowId, rustServerId, mode);
+    json(res, 200, { ok: true, config: cfg, mode });
+    return true;
+  }
+
   if (rest === "nuketown/setup" && method === "POST") {
     const raw = await readJsonBody(req);
     const body = raw as {
@@ -926,6 +934,24 @@ export async function handleAdminPanelRoutes(
       gateFrequency,
       mode === "tournament" ? 4 : 2
     );
+
+    // Zone swap: lobby opened -> ensure active (shared for nuketown + tournament).
+    try {
+      const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+      if (srvFull) {
+        const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId,
+          eventType: "nuketown",
+          desired: "active",
+          rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[nuketown zones] failed to apply active on lobby open (website setup):", e);
+    }
 
     json(res, 200, { ok: true, messageId: sent.id });
     return true;

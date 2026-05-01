@@ -64,7 +64,10 @@ export async function applyEventZoneConfigIfPresent(opts: {
   const otherCfg = await getEventZoneConfig(pool, guildRowId, rustServerId, eventType, other);
 
   // Switch-over semantics required: delete the opposite zone, then spawn the desired zone.
-  if (otherCfg?.zoneName?.trim()) {
+  // IMPORTANT: if both profiles use the same zone name, do NOT delete — we should edit in place.
+  const wantName = want.zoneName.trim();
+  const otherName = otherCfg?.zoneName?.trim() ?? "";
+  if (otherName && otherName !== wantName) {
     await runWebRconCommand(rustServerId, rcon.host, rcon.port, rcon.password, deleteZoneCmd(otherCfg.zoneName)).catch(() => {});
   }
 

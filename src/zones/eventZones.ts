@@ -67,7 +67,8 @@ export async function applyEventZoneConfigIfPresent(opts: {
   // IMPORTANT: if both profiles use the same zone name, do NOT delete — we should edit in place.
   const wantName = want.zoneName.trim();
   const otherName = otherCfg?.zoneName?.trim() ?? "";
-  if (otherName && otherName !== wantName) {
+  const switchingProfiles = Boolean(otherName && otherName !== wantName);
+  if (switchingProfiles) {
     await runWebRconCommand(rustServerId, rcon.host, rcon.port, rcon.password, deleteZoneCmd(otherCfg.zoneName)).catch(() => {});
   }
 
@@ -90,7 +91,9 @@ export async function applyEventZoneConfigIfPresent(opts: {
 
   const needsEdits = diffEdits(want.lastAppliedHash, applyHash);
 
-  if (!want.created) {
+  // If we're switching profiles (active<->inactive), we must ensure the desired zone exists right now.
+  // DB "created" is best-effort and may drift if zones were manually deleted or the server restarted.
+  if (!want.created || switchingProfiles) {
     const cmd = createZoneCmd(want);
     const res = await runWebRconCommand(rustServerId, rcon.host, rcon.port, rcon.password, cmd);
     if (!res.ok) {
@@ -99,7 +102,7 @@ export async function applyEventZoneConfigIfPresent(opts: {
     }
   }
 
-  if (want.created && !needsEdits) {
+  if (want.created && !needsEdits && !switchingProfiles) {
     // Still mark as applied so the DB tracks which profile is currently active on the server.
     await markEventZoneApplied(pool, guildRowId, rustServerId, eventType, desired, true, applyHash);
     return;

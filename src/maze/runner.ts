@@ -24,6 +24,7 @@ import { runMazeInitialSpawnWithZones } from "./mazeZones.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import { rewardPlayerLucids } from "../rewards/eventRewards.js";
 import { runWebRconCommand } from "../rcon/webrcon.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -143,6 +144,16 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
   const respawn = (respRows[0] as { r: number } | undefined)?.r === 1;
 
   try {
+    // Event zones: ensure ACTIVE zone (and remove INACTIVE) while the event is running.
+    await applyEventZoneConfigIfPresent({
+      pool,
+      guildRowId,
+      rustServerId,
+      eventType: "maze",
+      desired: "active",
+      rcon: { host, port, password },
+    }).catch(() => {});
+
     // Maze tuning for the duration of the event (best-effort).
     try {
       const res = await runWebRconCommand(rustServerId, host, port, password, "server.corpsedespawn 10");
@@ -224,6 +235,16 @@ export async function runMazeEvent(args: MazeRunnerArgs): Promise<void> {
     }
 
     await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, rustServerId, eventId);
+
+    // Event zones: after event ends, ensure INACTIVE zone (and remove ACTIVE).
+    await applyEventZoneConfigIfPresent({
+      pool,
+      guildRowId,
+      rustServerId,
+      eventType: "maze",
+      desired: "inactive",
+      rcon: { host, port, password },
+    }).catch(() => {});
 
     // Restore default despawn once the event is fully over (best-effort).
     try {

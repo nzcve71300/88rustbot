@@ -32,6 +32,7 @@ import { kothKillTracker } from "./killTracker.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import { rewardDiscordUsersLucids } from "../rewards/eventRewards.js";
 import { createKothGateZones, deleteKothGateZones } from "./kothZones.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 function parseMsEnv(name: string, fallback: number): number {
   const v = process.env[name]?.trim();
@@ -320,6 +321,16 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
     gate1Xyz,
   } = args;
 
+  // Event zones: ensure ACTIVE zone (and remove INACTIVE) while the event is running.
+  await applyEventZoneConfigIfPresent({
+    pool,
+    guildRowId,
+    rustServerId,
+    eventType: "koth",
+    desired: "active",
+    rcon: { host, port, password },
+  }).catch(() => {});
+
   const abort = new AbortController();
   running.set(rustServerId, { rustServerId, eventId, abort });
   kothKillTracker.register(rustServerId, { guildRowId, eventId, wave: 1 });
@@ -480,6 +491,15 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
       });
     }
   } finally {
+    // Event zones: after event finishes or errors, ensure INACTIVE zone (and remove ACTIVE).
+    await applyEventZoneConfigIfPresent({
+      pool,
+      guildRowId,
+      rustServerId,
+      eventType: "koth",
+      desired: "inactive",
+      rcon: { host, port, password },
+    }).catch(() => {});
     kothKillTracker.unregister(rustServerId);
     running.delete(rustServerId);
   }

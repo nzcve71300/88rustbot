@@ -15,6 +15,7 @@ import {
   listNuketownTeams,
   updateNuketownBracketJson,
 } from "../db/nuketown.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 function parseMsEnv(name: string, fallback: number): number {
   const v = process.env[name]?.trim();
@@ -231,6 +232,15 @@ async function postInfo(client: Client, channelId: string, title: string, desc: 
 export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void> {
   const { client, pool, guildRowId, rustServerId, eventId, announcementChannelId, serverNickname, host, port, password, kitName, gateFrequency } =
     args;
+
+  await applyEventZoneConfigIfPresent({
+    pool,
+    guildRowId,
+    rustServerId,
+    eventType: "nuketown",
+    desired: "active",
+    rcon: { host, port, password },
+  }).catch(() => {});
 
   const abort = new AbortController();
   running.set(rustServerId, { rustServerId, eventId, abort });
@@ -551,6 +561,14 @@ export async function runNuketownBracket(args: NuketownRunnerArgs): Promise<void
     await finishNuketownEvent(pool, eventId).catch(() => {});
     await postInfo(client, announcementChannelId, "🏙️ Nuketown stopped", `**${serverNickname}** — ended due to an error. Check bot logs.`);
   } finally {
+    await applyEventZoneConfigIfPresent({
+      pool,
+      guildRowId,
+      rustServerId,
+      eventType: "nuketown",
+      desired: "inactive",
+      rcon: { host, port, password },
+    }).catch(() => {});
     nuketownKillTracker.unregister(rustServerId);
     running.delete(rustServerId);
   }
@@ -577,6 +595,15 @@ export async function runNuketownDuel(args: NuketownRunnerArgs): Promise<void> {
     kitName,
     gateFrequency,
   } = args;
+
+  await applyEventZoneConfigIfPresent({
+    pool,
+    guildRowId,
+    rustServerId,
+    eventType: "nuketown",
+    desired: "active",
+    rcon: { host, port, password },
+  }).catch(() => {});
 
   const abort = new AbortController();
   running.set(rustServerId, { rustServerId, eventId, abort });
@@ -705,6 +732,14 @@ export async function runNuketownDuel(args: NuketownRunnerArgs): Promise<void> {
     console.error("[nuketown] duel failed:", e);
     await finishNuketownEvent(pool, eventId).catch(() => {});
   } finally {
+    await applyEventZoneConfigIfPresent({
+      pool,
+      guildRowId,
+      rustServerId,
+      eventType: "nuketown",
+      desired: "inactive",
+      rcon: { host, port, password },
+    }).catch(() => {});
     running.delete(rustServerId);
     nuketownKillTracker.unregister(rustServerId);
   }

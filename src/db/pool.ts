@@ -658,6 +658,38 @@ export async function ensureSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS event_zone_configs (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        guild_id BIGINT UNSIGNED NOT NULL,
+        rust_server_id BIGINT UNSIGNED NOT NULL,
+        event_type VARCHAR(16) NOT NULL,
+        profile VARCHAR(16) NOT NULL,
+        zone_name VARCHAR(64) NOT NULL,
+        pos_x DOUBLE NOT NULL,
+        pos_y DOUBLE NOT NULL,
+        pos_z DOUBLE NOT NULL,
+        rotation DOUBLE NOT NULL DEFAULT 0,
+        size INT UNSIGNED NOT NULL DEFAULT 1,
+        allow_pvpdamage TINYINT(1) NOT NULL DEFAULT 1,
+        allow_npcdamage TINYINT(1) NOT NULL DEFAULT 0,
+        radiation_damage INT UNSIGNED NOT NULL DEFAULT 0,
+        allow_buildingdamage TINYINT(1) NOT NULL DEFAULT 0,
+        allow_building TINYINT(1) NOT NULL DEFAULT 0,
+        color_rgb VARCHAR(32) NULL,
+        enter_message TEXT NULL,
+        leave_message TEXT NULL,
+        created TINYINT(1) NOT NULL DEFAULT 0,
+        last_applied_hash VARCHAR(80) NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_event_zone (guild_id, rust_server_id, event_type, profile),
+        KEY idx_event_zone_server (guild_id, rust_server_id, event_type),
+        CONSTRAINT fk_event_zone_guild FOREIGN KEY (guild_id) REFERENCES guilds (id) ON DELETE CASCADE,
+        CONSTRAINT fk_event_zone_server FOREIGN KEY (rust_server_id) REFERENCES rust_servers (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     await ignoreDup("ALTER TABLE docked_cargo_configs ADD COLUMN announcement_role_id VARCHAR(32) NULL");
     await ignoreDup(
       "ALTER TABLE docked_cargo_configs ADD COLUMN automation_phase VARCHAR(16) NULL COMMENT 'docked|between'"

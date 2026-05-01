@@ -2,6 +2,7 @@ import { Client, TextChannel, EmbedBuilder } from "discord.js";
 import type { Pool } from "mysql2/promise";
 import { runWebRconCommand } from "../rcon/webrcon.js";
 import { quoteForRconArg } from "../rcon/quote.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 import { config } from "../config.js";
 import { decryptSecret } from "../crypto/passwordVault.js";
 import { getRustServerByIdForGuild } from "../db/rustServers.js";
@@ -432,6 +433,16 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
   const host = rustRow.server_ip;
   const port = rustRow.rcon_port;
 
+  // Event zones (NOT the 1v1 GO countdown zones): swap to ACTIVE while match is running.
+  await applyEventZoneConfigIfPresent({
+    pool,
+    guildRowId,
+    rustServerId,
+    eventType: "onev1",
+    desired: "active",
+    rcon: { host, port, password },
+  }).catch(() => {});
+
   const gate1 = await getOneV1GateCoord(pool, guildRowId, rustServerId, 1);
   const gate2 = await getOneV1GateCoord(pool, guildRowId, rustServerId, 2);
   if (!gate1 || !gate2) {
@@ -712,6 +723,14 @@ export async function runOneV1Match(args: OneV1RunnerArgs): Promise<void> {
     }
   } finally {
     void deleteCountdownZonesIfCreated().catch(() => {});
+    await applyEventZoneConfigIfPresent({
+      pool,
+      guildRowId,
+      rustServerId,
+      eventType: "onev1",
+      desired: "inactive",
+      rcon: { host, port, password },
+    }).catch(() => {});
     runningOneV1.delete(rustServerId);
     onev1RespawnWait.cancel(rustServerId);
     onev1KillTracker.unregister(rustServerId);

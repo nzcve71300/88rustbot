@@ -13,6 +13,7 @@ import { getDiscordGuildIdByRowId, getOrCreateGuildRow } from "../db/guilds.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import {
   getActiveKothEvent,
+  getActiveKothEventMeta,
   getGateCoord,
   getKothConfig,
   upsertGateCoord,
@@ -21,6 +22,7 @@ import {
 } from "../db/koth.js";
 import {
   getActiveMazeEvent,
+  getActiveMazeEventMeta,
   getMazeConfig,
   isMazeAutomationConfigComplete,
   MAZE_MAX_SPAWN_POINTS,
@@ -63,6 +65,8 @@ import {
 } from "../db/dockedCargo.js";
 import { startDockedCargoAutomation } from "../dockedCargo/runner.js";
 import { requestStopMaze } from "../maze/runner.js";
+import { type EventZoneProfile, type EventZoneType, getEventZoneConfig, markEventZoneApplied, upsertEventZoneConfig } from "../db/eventZones.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body), "utf8");
@@ -120,6 +124,51 @@ async function assertWebsiteAdmin(
   if (!member) return null;
   if (!memberHasAdminRole(member, g)) return null;
   return { guildRowId, discordGuildId };
+}
+
+function isEventZoneType(s: string): s is EventZoneType {
+  return s === "koth" || s === "maze" || s === "nuketown" || s === "onev1";
+}
+
+function isEventZoneProfile(s: string): s is EventZoneProfile {
+  return s === "active" || s === "inactive";
+}
+
+function parse01(v: unknown): 0 | 1 | null {
+  const n = typeof v === "string" ? Number.parseInt(v, 10) : typeof v === "number" ? v : NaN;
+  if (n === 0) return 0;
+  if (n === 1) return 1;
+  return null;
+}
+
+function parseRgb(s: unknown): string | null {
+  const raw = String(s ?? "").trim();
+  if (!raw) return null;
+  const m = /^(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})$/.exec(raw);
+  if (!m) return null;
+  const r = Number(m[1]);
+  const g = Number(m[2]);
+  const b = Number(m[3]);
+  if (![r, g, b].every((x) => Number.isFinite(x) && x >= 0 && x <= 255)) return null;
+  return `${r},${g},${b}`;
+}
+
+async function isEventRunningNow(pool: Pool, guildRowId: number, rustServerId: number, eventType: EventZoneType): Promise<boolean> {
+  if (eventType === "koth") {
+    const meta = await getActiveKothEventMeta(pool, guildRowId, rustServerId);
+    return meta?.status === "running";
+  }
+  if (eventType === "maze") {
+    const meta = await getActiveMazeEventMeta(pool, guildRowId, rustServerId);
+    return meta?.status === "running";
+  }
+  if (eventType === "nuketown") {
+    const meta = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);
+    return meta?.status === "running";
+  }
+  // onev1
+  const match = await getMatchForServer(pool, rustServerId);
+  return match?.status === "running";
 }
 
 export async function handleAdminPanelRoutes(
@@ -204,6 +253,116 @@ export async function handleAdminPanelRoutes(
       .sort((a, b) => a.name.localeCompare(b.name));
     json(res, 200, { ok: true, channels, roles });
     return true;
+  }
+
+  const zoneMatch = /^zones\/(koth|maze|nuketown|onev1)\/(active|inactive)$/.exec(rest);
+  if (zoneMatch) {
+    const eventType = zoneMatch[1] as string;
+    const profile = zoneMatch[2] as string;
+    if (!isEventZoneType(eventType) || !isEventZoneProfile(profile)) {
+      json(res, 400, { ok: false, error: "Invalid zone type/profile" });
+      return true;
+    }
+
+    if (method === "GET") {
+      const cfg = await getEventZoneConfig(pool, guildRowId, rustServerId, eventType, profile);
+      json(res, 200, { ok: true, config: cfg });
+      return true;
+    }
+
+    if (method === "PUT") {
+      const raw = await readJsonBody(req);
+      const body = (raw ?? {}) as any;
+
+      const zoneName = String(body.zoneName ?? "").trim();
+      const x = Number(body.posX);
+      const y = Number(body.posY);
+      const z = Number(body.posZ);
+      const rotation = Number(body.rotation ?? 0);
+      const size = Number(body.size);
+      const allowPvp = parse01(body.enablePvp);
+      const allowNpc = parse01(body.enableNpcVsPlayerDamage);
+      const radiationDamage = Number(body.radiationDamage ?? 0);
+      const allowBuildingDamage = parse01(body.isBuildingDamageAllowed);
+      const allowBuilding = parse01(body.isBuildingAllowed);
+      const colorRgb = body.zoneColor != null ? parseRgb(body.zoneColor) : null;
+      const enterMessage = body.enterMessage != null ? String(body.enterMessage).trim() : "";
+      const leaveMessage = body.leaveMessage != null ? String(body.leaveMessage).trim() : "";
+
+      if (!zoneName || zoneName.length > 64) {
+        json(res, 400, { ok: false, error: "Zone name is required (max 64 chars)." });
+        return true;
+      }
+      if (![x, y, z].every((n) => Number.isFinite(n))) {
+        json(res, 400, { ok: false, error: "Map position must be numeric x,y,z." });
+        return true;
+      }
+      if (!Number.isFinite(rotation)) {
+        json(res, 400, { ok: false, error: "Rotation must be a number." });
+        return true;
+      }
+      if (!Number.isFinite(size) || size < 1 || size > 100) {
+        json(res, 400, { ok: false, error: "Zone size must be 1–100." });
+        return true;
+      }
+      if (allowPvp == null || allowNpc == null || allowBuildingDamage == null || allowBuilding == null) {
+        json(res, 400, { ok: false, error: "Yes/No fields must be numeric 0 or 1." });
+        return true;
+      }
+      if (!Number.isFinite(radiationDamage) || radiationDamage < 0 || radiationDamage > 100) {
+        json(res, 400, { ok: false, error: "Radiation damage must be 0–100." });
+        return true;
+      }
+      if (body.zoneColor != null && String(body.zoneColor).trim() && !colorRgb) {
+        json(res, 400, { ok: false, error: "Zone color must be R,G,B (0–255 each)." });
+        return true;
+      }
+
+      await upsertEventZoneConfig(pool, guildRowId, rustServerId, {
+        eventType,
+        profile,
+        zoneName,
+        pos: { x, y, z },
+        rotation,
+        size: Math.floor(size),
+        allowPvpDamage01: allowPvp,
+        allowNpcDamage01: allowNpc,
+        radiationDamage: Math.floor(radiationDamage),
+        allowBuildingDamage01: allowBuildingDamage,
+        allowBuilding01: allowBuilding,
+        colorRgb,
+        enterMessage: enterMessage ? enterMessage : null,
+        leaveMessage: leaveMessage ? leaveMessage : null,
+      });
+
+      // Only apply immediately when the event state matches this profile.
+      const running = await isEventRunningNow(pool, guildRowId, rustServerId, eventType);
+      const shouldApply = profile === "active" ? running : !running;
+      let applied = false;
+      if (shouldApply) {
+        const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+        if (srv) {
+          try {
+            const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
+            await applyEventZoneConfigIfPresent({
+              pool,
+              guildRowId,
+              rustServerId,
+              eventType,
+              desired: profile,
+              rcon: { host: srv.server_ip, port: srv.rcon_port, password },
+            });
+            applied = true;
+          } catch (e) {
+            console.error("[zones] apply failed:", e);
+          }
+        }
+      }
+
+      const saved = await getEventZoneConfig(pool, guildRowId, rustServerId, eventType, profile);
+      json(res, 200, { ok: true, saved, applied });
+      return true;
+    }
   }
 
   if (rest === "koth/events" && method === "GET") {

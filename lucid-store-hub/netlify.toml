@@ -2,6 +2,9 @@
   publish = "dist"
   command = "npm run build"
 
+# PayPal: set PAYPAL_MODE=live plus Live REST credentials in Netlify UI.
+# Use Live Client ID for both PAYPAL_CLIENT_ID and VITE_PAYPAL_CLIENT_ID; redeploy after changing VITE_*.
+
 [build.environment]
   NODE_VERSION = "18"
 

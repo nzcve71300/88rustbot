@@ -112,6 +112,7 @@ export async function applyEventZoneConfigIfPresent(opts: {
 
   // Edit settings only when values changed.
   const edits: Array<[string, string]> = [
+    ["enabled", "1"],
     ["position", formatParenXyz(want.pos)],
     ["rotation", String(Math.floor(Number(want.rotation) || 0))],
     ["size", String(Math.floor(want.size))],

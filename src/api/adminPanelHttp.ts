@@ -987,6 +987,24 @@ export async function handleAdminPanelRoutes(
     await finishNuketownEvent(pool, active.id).catch(() => {});
     await deleteNuketownEventOnly(pool, active.id);
 
+    // Zone swap: event deleted -> ensure inactive (shared nuketown zone profile).
+    try {
+      const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+      if (srvFull) {
+        const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId,
+          eventType: "nuketown",
+          desired: "inactive",
+          rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[nuketown zones] failed to apply inactive on delete:", e);
+    }
+
     json(res, 200, { ok: true, stoppedRunner: stopped });
     return true;
   }
@@ -1101,6 +1119,24 @@ export async function handleAdminPanelRoutes(
     onev1RespawnWait.cancel(rustServerId);
     onev1KillTracker.releasePendingRound(rustServerId);
     await deleteMatch(pool, match.id);
+
+    // Zone swap: match removed -> ensure inactive (if configured).
+    try {
+      const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+      if (srvFull) {
+        const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId,
+          eventType: "onev1",
+          desired: "inactive",
+          rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[onev1 zones] failed to apply inactive on delete:", e);
+    }
 
     try {
       if (match.messageId) {

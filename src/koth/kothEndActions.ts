@@ -17,6 +17,7 @@ import { kothKillTracker } from "../koth/killTracker.js";
 import { requestStopKoth } from "../koth/runner.js";
 import { buildKothEndedSay, runSayRcon } from "../rcon/eventBroadcasts.js";
 import { runWebRconCommand } from "../rcon/webrcon.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 /**
  * Shared KOTH end logic (Discord `/koth-end` and website admin panel).
@@ -84,6 +85,24 @@ export async function performKothEnd(pool: Pool, guildRowId: number, serverId: n
       gid: guildRowId,
       sid: serverId,
     });
+  }
+
+  // Zone swap: event ended -> ensure inactive zone is applied (if configured).
+  try {
+    const srv = await getRustServerByIdForGuild(pool, guildRowId, serverId);
+    if (srv) {
+      const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId: serverId,
+        eventType: "koth",
+        desired: "inactive",
+        rcon: { host: srv.server_ip, port: srv.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[koth zones] failed to apply inactive on end:", e);
   }
 
   return { ok: true, hadActive: true, stoppedRunner: stopped };

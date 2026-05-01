@@ -8,6 +8,10 @@ import { requestStopNuketown } from "../../nuketown/runner.js";
 import { autocompleteServerOption, validateServerSelection } from "../shared/serverOption.js";
 import { getActiveNuketownEventMeta, deleteNuketownEventOnly, finishNuketownEvent } from "../../db/nuketown.js";
 import { insertEventSnapshot } from "../../db/eventSnapshots.js";
+import { getRustServerByIdForGuild } from "../../db/rustServers.js";
+import { config } from "../../config.js";
+import { decryptSecret } from "../../crypto/passwordVault.js";
+import { applyEventZoneConfigIfPresent } from "../../zones/eventZones.js";
 
 export const nuketownDeleteCommand = {
   data: new SlashCommandBuilder()
@@ -69,6 +73,24 @@ export const nuketownDeleteCommand = {
 
     await finishNuketownEvent(pool, active.id).catch(() => {});
     await deleteNuketownEventOnly(pool, active.id);
+
+    // Zone swap: event removed -> ensure inactive (shared nuketown zone profile).
+    try {
+      const srv = await getRustServerByIdForGuild(pool, guildRowId, serverId);
+      if (srv) {
+        const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId: serverId,
+          eventType: "nuketown",
+          desired: "inactive",
+          rcon: { host: srv.server_ip, port: srv.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[nuketown zones] failed to apply inactive on delete:", e);
+    }
 
     await interaction.editReply({
       embeds: [

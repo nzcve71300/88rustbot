@@ -14,6 +14,7 @@ import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import { mazeKillTracker } from "../maze/killTracker.js";
 import { requestStopMaze } from "../maze/runner.js";
 import { buildMazeEndedSay, runSayRcon } from "../rcon/eventBroadcasts.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 export async function performMazeDelete(pool: Pool, guildRowId: number, serverId: number): Promise<{
   ok: true;
@@ -57,6 +58,24 @@ export async function performMazeDelete(pool: Pool, guildRowId: number, serverId
   }
 
   await removeMazeEventAndApplyConfigOutcome(pool, guildRowId, serverId, active.id);
+
+  // Zone swap: event ended -> ensure inactive zone is applied (if configured).
+  try {
+    const srv = await getRustServerByIdForGuild(pool, guildRowId, serverId);
+    if (srv) {
+      const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId: serverId,
+        eventType: "maze",
+        desired: "inactive",
+        rcon: { host: srv.server_ip, port: srv.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[maze zones] failed to apply inactive on end:", e);
+  }
 
   return { ok: true, hadActive: true, stoppedRunner: stopped };
 }

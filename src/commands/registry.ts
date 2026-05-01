@@ -40,6 +40,7 @@ import { dockedCargoSetupCommand } from "./Admin commands/docked-cargo-setup.js"
 import { dockedCargoStartCommand } from "./Admin commands/docked-cargo-start.js";
 import { onev1Command } from "./Player Commands/onev1.js";
 import { giveTokensCommand } from "./Admin commands/give-tokens.js";
+import { giveTokensAllCommand } from "./Admin commands/give-tokens-all.js";
 import { wipeCommand } from "./Admin commands/wipe.js";
 
 export type SlashCommandModule = {
@@ -86,6 +87,7 @@ const slashCommandsAll: SlashCommandModule[] = [
   unlinkCommand,
   forceLinkCommand,
   giveTokensCommand,
+  giveTokensAllCommand,
   wipeCommand,
 
   // player

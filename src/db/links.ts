@@ -124,3 +124,15 @@ export async function getLinkByIngameNameBestEffort(
   return null;
 }
 
+/** Every Discord user id with an `/link` row for this guild (internal `guilds.id`). */
+export async function listLinkedDiscordUserIdsForGuild(pool: Pool, guildRowId: number): Promise<string[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT CAST(discord_user_id AS CHAR) AS discordUserId
+     FROM discord_links
+     WHERE guild_id = :gid
+     ORDER BY discord_user_id ASC`,
+    { gid: guildRowId }
+  );
+  return (rows as { discordUserId: string }[]).map((r) => String(r.discordUserId));
+}
+

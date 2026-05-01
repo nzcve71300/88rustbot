@@ -2,13 +2,7 @@ import { type ChatInputCommandInteraction, SlashCommandBuilder } from "discord.j
 import { baseEmbed } from "../../embeds/standard.js";
 import { pool } from "../../db/pool.js";
 import { updateLucidsByDelta } from "../../db/storeLucids.js";
-
-const GIVE_TOKENS_ALLOWLIST = new Set<string>([
-  "1252993829007528086",
-  "1445388567927853068",
-  "382851787654168588",
-  "1393246741226061935",
-]);
+import { canUseGiveTokens } from "./giveTokensAllowlist.js";
 
 export const giveTokensCommand = {
   data: new SlashCommandBuilder()
@@ -34,7 +28,7 @@ export const giveTokensCommand = {
     }
 
     const actorId = interaction.user?.id;
-    if (!actorId || !GIVE_TOKENS_ALLOWLIST.has(actorId)) {
+    if (!canUseGiveTokens(actorId)) {
       await interaction.reply({
         embeds: [
           baseEmbed()

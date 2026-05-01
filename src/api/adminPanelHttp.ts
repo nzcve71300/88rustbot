@@ -171,6 +171,25 @@ async function isEventRunningNow(pool: Pool, guildRowId: number, rustServerId: n
   return match?.status === "running";
 }
 
+async function isEventActiveForZones(pool: Pool, guildRowId: number, rustServerId: number, eventType: EventZoneType): Promise<boolean> {
+  // "Active" for zones means: lobby open OR running (so players joining lobby get the active zone).
+  if (eventType === "koth") {
+    const a = await getActiveKothEvent(pool, guildRowId, rustServerId);
+    return a?.status === "lobby" || a?.status === "running";
+  }
+  if (eventType === "maze") {
+    const a = await getActiveMazeEvent(pool, guildRowId, rustServerId);
+    return a?.status === "lobby" || a?.status === "running";
+  }
+  if (eventType === "nuketown") {
+    const a = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);
+    return a?.status === "lobby" || a?.status === "running";
+  }
+  // onev1: treat pending/running as active (no lobby concept).
+  const match = await getMatchForServer(pool, rustServerId);
+  return match != null && (match.status === "pending" || match.status === "running");
+}
+
 export async function handleAdminPanelRoutes(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -335,11 +354,15 @@ export async function handleAdminPanelRoutes(
         leaveMessage: leaveMessage ? leaveMessage : null,
       });
 
-      // Only apply immediately when the event state matches this profile.
-      const running = await isEventRunningNow(pool, guildRowId, rustServerId, eventType);
-      const shouldApply = profile === "active" ? running : !running;
+      // After saving, apply the correct profile for the current server state:
+      // - event active (lobby/running) => apply ACTIVE profile
+      // - event inactive => apply INACTIVE profile
       let applied = false;
-      if (shouldApply) {
+      const desiredProfile: EventZoneProfile = (await isEventActiveForZones(pool, guildRowId, rustServerId, eventType))
+        ? "active"
+        : "inactive";
+      const desiredCfg = await getEventZoneConfig(pool, guildRowId, rustServerId, eventType, desiredProfile);
+      if (desiredCfg) {
         const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
         if (srv) {
           try {
@@ -349,7 +372,7 @@ export async function handleAdminPanelRoutes(
               guildRowId,
               rustServerId,
               eventType,
-              desired: profile,
+              desired: desiredProfile,
               rcon: { host: srv.server_ip, port: srv.rcon_port, password },
             });
             applied = true;

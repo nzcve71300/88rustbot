@@ -96,7 +96,11 @@ export async function applyEventZoneConfigIfPresent(opts: {
     }
   }
 
-  if (want.created && !needsEdits) return;
+  if (want.created && !needsEdits) {
+    // Still mark as applied so the DB tracks which profile is currently active on the server.
+    await markEventZoneApplied(pool, guildRowId, rustServerId, eventType, desired, true, applyHash);
+    return;
+  }
 
   // Edit settings only when values changed.
   const edits: Array<[string, string]> = [

@@ -26,6 +26,7 @@ import { updateMazeMessage } from "./announce.js";
 import { renderMazeEmbed } from "./render.js";
 import { runMazeEvent } from "./runner.js";
 import { runWebRconCommand } from "../rcon/webrcon.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 const LOBBY_MAX_MINUTES = 15;
 
@@ -103,6 +104,23 @@ async function cancelAutomatedLobby(
 ): Promise<void> {
   const cfg = await getMazeConfig(pool, guildRowId, rustServerId);
   await deleteMazeEventRow(pool, guildRowId, eventId);
+  // Zone swap: lobby/event ended -> ensure inactive.
+  try {
+    const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+    if (srvFull) {
+      const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId,
+        eventType: "maze",
+        desired: "inactive",
+        rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[maze zones] failed to apply inactive on cancel:", e);
+  }
   if (cfg?.howOftenHours && cfg.howOftenHours > 0) {
     await mergeMazeConfig(pool, guildRowId, rustServerId, {
       nextLobbyAtMs: Date.now() + cfg.howOftenHours * 3600_000,
@@ -163,6 +181,24 @@ async function openAutomatedMazeLobby(pool: Pool, client: Client, guildRowId: nu
     body: "Maze lobby is open. Join now!",
     tag: `maze-lobby-${lobby.eventId}`,
   });
+
+  // Zone swap: lobby opened -> ensure active.
+  try {
+    const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+    if (srvFull) {
+      const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId,
+        eventType: "maze",
+        desired: "active",
+        rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[maze zones] failed to apply active on lobby open:", e);
+  }
 
   // Maze-specific server tuning while lobby is open/announced (best-effort).
   try {

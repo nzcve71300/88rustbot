@@ -26,6 +26,7 @@ import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateKothMessage } from "./announce.js";
 import { renderKothEmbed } from "./render.js";
 import { parseGateCoordTriple, runKothWaves } from "./runner.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 const LOBBY_MAX_MINUTES = 5;
 const MIN_GATE_FILL_RATIO = 0.5;
@@ -117,6 +118,23 @@ async function cancelAutomatedLobby(
 ): Promise<void> {
   const cfg = await getKothConfig(pool, guildRowId, rustServerId);
   await deleteKothEventRow(pool, guildRowId, eventId);
+  // Zone swap: lobby/event ended -> ensure inactive.
+  try {
+    const srv = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+    if (srv) {
+      const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId,
+        eventType: "koth",
+        desired: "inactive",
+        rcon: { host: srv.server_ip, port: srv.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[koth zones] failed to apply inactive on cancel:", e);
+  }
   if (cfg?.howOftenHours && cfg.howOftenHours > 0) {
     await mergeKothConfig(pool, guildRowId, rustServerId, {
       nextLobbyAtMs: Date.now() + cfg.howOftenHours * 3600_000,
@@ -187,6 +205,24 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
     body: "KOTH lobby is open. Join now!",
     tag: `koth-lobby-${lobby.eventId}`,
   });
+
+  // Zone swap: lobby opened -> ensure active.
+  try {
+    const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+    if (srvFull) {
+      const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId,
+        eventType: "koth",
+        desired: "active",
+        rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[koth zones] failed to apply active on lobby open:", e);
+  }
 }
 
 async function processLobbyPhase(

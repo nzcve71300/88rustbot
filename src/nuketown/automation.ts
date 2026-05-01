@@ -18,6 +18,7 @@ import { sendAutomatedLobbyOpenPing } from "../discord/lobbyOpenNotify.js";
 import { updateNuketownMessage } from "./announce.js";
 import { renderNuketownEmbed } from "./render.js";
 import { runNuketownBracket, runNuketownDuel } from "./runner.js";
+import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 const LOBBY_MAX_MINUTES = 15;
 
@@ -119,6 +120,24 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
     body: mode === "tournament" ? "Nuketown Tournament lobby is open. Join now!" : "Nuketown lobby is open. Join now!",
     tag: `${mode}-lobby-${lobby.eventId}`,
   });
+
+  // Zone swap: lobby opened -> ensure active (shared for nuketown + tournament).
+  try {
+    const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+    if (srvFull) {
+      const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+      await applyEventZoneConfigIfPresent({
+        pool,
+        guildRowId,
+        rustServerId,
+        eventType: "nuketown",
+        desired: "active",
+        rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+      });
+    }
+  } catch (e) {
+    console.error("[nuketown zones] failed to apply active on lobby open:", e);
+  }
 }
 
 export async function startNuketownMatchFromLobby(
@@ -237,12 +256,46 @@ async function processLobbyPhase(pool: Pool, client: Client, guildRowId: number,
   if (teams.length < 2) {
     // Cancel: not enough clans.
     await stopNuketownAutomation(pool, guildRowId, rustServerId, mode);
+    // Zone swap: no active lobby/match -> ensure inactive.
+    try {
+      const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+      if (srvFull) {
+        const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId,
+          eventType: "nuketown",
+          desired: "inactive",
+          rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[nuketown zones] failed to apply inactive on cancel:", e);
+    }
     return;
   }
 
   const ok = await startNuketownMatchFromLobby(pool, client, guildRowId, rustServerId, meta2.id, mode);
   if (!ok) {
     await stopNuketownAutomation(pool, guildRowId, rustServerId, mode);
+    // Zone swap: match didn't start -> ensure inactive.
+    try {
+      const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
+      if (srvFull) {
+        const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId,
+          eventType: "nuketown",
+          desired: "inactive",
+          rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[nuketown zones] failed to apply inactive on start-fail:", e);
+    }
   }
 }
 

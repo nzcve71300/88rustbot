@@ -31,7 +31,6 @@ import { quoteForRconArg } from "../rcon/quote.js";
 import { kothKillTracker } from "./killTracker.js";
 import { insertEventSnapshot } from "../db/eventSnapshots.js";
 import { rewardDiscordUsersLucids } from "../rewards/eventRewards.js";
-import { createKothGateZones, deleteKothGateZones } from "./kothZones.js";
 import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
 
 function parseMsEnv(name: string, fallback: number): number {
@@ -136,22 +135,49 @@ async function runFakeBroadcasterSequence(
   gate1Xyz: [number, number, number],
   signal: AbortSignal
 ): Promise<void> {
+  // Back-compat wrapper kept for callers, but behavior is now "open and keep open".
   await sleepAbortable(BROADCASTER_PAUSE_MS, signal);
   const [gx, gy, gz] = gate1Xyz;
   const spawnCmd = `rf.spawnfakebroadcaster ${gateFrequency} 1000 ${gx} ${gy} ${gz}`;
   const spawnRes = await runWebRconCommand(rustServerId, host, port, password, spawnCmd);
-  if (!spawnRes.ok) {
-    console.error(`[koth] ${spawnCmd}: ${spawnRes.error}`);
-  } else {
-    console.log(`[koth] spawnfakebroadcaster ok: ${spawnRes.message?.slice(0, 120) ?? "(empty)"}`);
-  }
+  if (!spawnRes.ok) console.error(`[koth] ${spawnCmd}: ${spawnRes.error}`);
   await sleepAbortable(BROADCASTER_PAUSE_MS, signal);
+}
+
+async function closeDoorsAfterMatch(rustServerId: number, host: string, port: number, password: string): Promise<void> {
   const removeCmd = `rf.removefakeboardcaster`;
   const removeRes = await runWebRconCommand(rustServerId, host, port, password, removeCmd);
-  if (!removeRes.ok) {
-    console.error(`[koth] ${removeCmd}: ${removeRes.error}`);
-  } else {
-    console.log(`[koth] removefakeboardcaster ok: ${removeRes.message?.slice(0, 120) ?? "(empty)"}`);
+  if (!removeRes.ok) console.error(`[koth] ${removeCmd}: ${removeRes.error}`);
+}
+
+async function killPlayerWithFallbacks(
+  rustServerId: number,
+  host: string,
+  port: number,
+  password: string,
+  ingameName: string
+): Promise<boolean> {
+  const q = quoteForRconArg(ingameName);
+  const attempts: string[] = [];
+  const custom = process.env.KOTH_KILL_CMD?.trim();
+  if (custom) attempts.push(custom.replace(/\{name\}/g, q));
+  attempts.push(`global.killplayer "${q}"`);
+  attempts.push(`kill "${q}"`);
+  attempts.push(`global.kill "${q}"`);
+
+  let lastErr = "";
+  for (const cmd of attempts) {
+    const res = await runWebRconCommand(rustServerId, host, port, password, cmd);
+    if (res.ok) return true;
+    lastErr = res.error ?? "unknown";
+  }
+  console.error(`[koth] all kill attempts failed for ${ingameName}: ${lastErr}`);
+  return false;
+}
+
+async function killRosterSequential(rustServerId: number, host: string, port: number, password: string, ingameNames: string[]): Promise<void> {
+  for (const name of ingameNames) {
+    await killPlayerWithFallbacks(rustServerId, host, port, password, name);
   }
 }
 
@@ -337,19 +363,14 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
   await kothKillTracker.refreshRoster(pool, rustServerId, guildRowId, eventId);
 
   try {
-    let activeZoneNames: string[] = [];
+    // Doors should stay open for the entire match (all waves).
+    let doorsOpened = false;
     for (let wave = 1; wave <= waves; wave++) {
       if (abort.signal.aborted) throw new Error("KOTH aborted");
       if (wave > 1) {
         await sleepAbortable(WAVE_GAP_MS, abort.signal);
         kothKillTracker.setWave(rustServerId, wave);
         await kothKillTracker.refreshRoster(pool, rustServerId, guildRowId, eventId);
-      }
-
-      // Delete prior wave zones before kits/teleports (requested: delete when round ends, before next teleport).
-      if (activeZoneNames.length > 0) {
-        await deleteKothGateZones({ rustServerId, host, port, password, zoneNames: activeZoneNames });
-        activeZoneNames = [];
       }
 
       // Stamp wave start in DB so the website phase timers (door delay → wave) match the runner.
@@ -378,14 +399,10 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
         await sleepAbortable(KOTH_DOOR_DELAY_MS, abort.signal);
       }
 
-      await runFakeBroadcasterSequence(rustServerId, host, port, password, gateFrequency, gate1Xyz, abort.signal);
-
-      // Gates close when the fake broadcaster is removed; spawn a clan-named zone at each assigned gate with coords.
-      try {
-        activeZoneNames = await createKothGateZones({ pool, guildRowId, rustServerId, eventId, host, port, password });
-      } catch (e) {
-        console.error("[koth] create gate zones failed:", e);
-        activeZoneNames = [];
+      // Doors: open once on wave 1 and keep open until the match is finished.
+      if (!doorsOpened) {
+        await runFakeBroadcasterSequence(rustServerId, host, port, password, gateFrequency, gate1Xyz, abort.signal);
+        doorsOpened = true;
       }
 
       await sleepWaveDurationOrEarlyEnd(rustServerId, durationPerWaveMin * 60_000, abort.signal, wave, waves);
@@ -395,11 +412,16 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
       console.log(`[koth] wave ${wave}/${waves} summary: ${rawKillRows} row(s) in koth_kills for event ${eventId}`);
       await postWaveEmbed(client, pool, guildRowId, announcementChannelId, eventId, wave, waves);
     }
-
-    // Cleanup zones after final wave as well.
-    if (activeZoneNames.length > 0) {
-      await deleteKothGateZones({ rustServerId, host, port, password, zoneNames: activeZoneNames });
-      activeZoneNames = [];
+    // Match finished: close doors, then respawn players out of the arena.
+    if (doorsOpened) {
+      await closeDoorsAfterMatch(rustServerId, host, port, password);
+      try {
+        const participants = await listKothParticipantsWithGatesAndClan(pool, guildRowId, eventId);
+        const names = [...new Set(participants.map((p) => p.ingameName).filter(Boolean))];
+        await killRosterSequential(rustServerId, host, port, password, names);
+      } catch (e) {
+        console.error("[koth] failed to respawn roster after close:", e);
+      }
     }
 
     const doneCh = await client.channels.fetch(announcementChannelId);
@@ -491,6 +513,12 @@ export async function runKothWaves(args: KothRunnerArgs): Promise<void> {
       });
     }
   } finally {
+    // If aborted/error path, best-effort close doors so we don't leave them open.
+    try {
+      await closeDoorsAfterMatch(rustServerId, host, port, password);
+    } catch {
+      /* ignore */
+    }
     // Event zones: after event finishes or errors, ensure INACTIVE zone (and remove ACTIVE).
     await applyEventZoneConfigIfPresent({
       pool,

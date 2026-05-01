@@ -21,6 +21,10 @@ import {
 } from "../../db/eventParticipation.js";
 import { listRustServersForGuild } from "../../db/rustServers.js";
 import { updateKothMessage } from "../../koth/announce.js";
+import { getRustServerByIdForGuild } from "../../db/rustServers.js";
+import { decryptSecret } from "../../crypto/passwordVault.js";
+import { config } from "../../config.js";
+import { applyEventZoneConfigIfPresent } from "../../zones/eventZones.js";
 
 export const kothJoinCommand = {
   data: new SlashCommandBuilder()
@@ -87,6 +91,24 @@ export const kothJoinCommand = {
       return;
     }
     const eventId = lobby.eventId;
+
+    // Ensure ACTIVE zone is applied while lobby is open (covers manual /koth-join-created lobbies).
+    try {
+      const srv = await getRustServerByIdForGuild(pool, guildRowId, serverId);
+      if (srv) {
+        const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
+        await applyEventZoneConfigIfPresent({
+          pool,
+          guildRowId,
+          rustServerId: serverId,
+          eventType: "koth",
+          desired: "active",
+          rcon: { host: srv.server_ip, port: srv.rcon_port, password },
+        });
+      }
+    } catch (e) {
+      console.error("[koth zones] failed to apply active on join:", e);
+    }
 
     let gate = await getClanGate(pool, eventId, clan.clanId);
     if (gate == null) {

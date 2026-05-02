@@ -15,6 +15,7 @@ import {
   getGateCoord,
   getKothConfig,
   getKothDoorDelayMs,
+  getKothEventStatus,
   getKothEventTopKillerWithLink,
   type KothKillLogRow,
   listKothKillLogForWave,
@@ -49,6 +50,11 @@ const KOTH_DOOR_DELAY_MS = getKothDoorDelayMs();
 /** Retry kit+teleport a few times to reduce missed RCON actions. */
 const TELEPORT_KIT_MAX_ATTEMPTS = parseMsEnv("KOTH_TELEPORT_KIT_MAX_ATTEMPTS", 3);
 const TELEPORT_KIT_RETRY_MS = parseMsEnv("KOTH_TELEPORT_KIT_RETRY_MS", 250);
+/** After fast retries fail, wait then try again (helps when RCON is saturated). */
+const KOTH_TP_SLOW_WAIT_MS = parseMsEnv("KOTH_TP_SLOW_WAIT_MS", 5000);
+const KOTH_TP_SLOW_EXTRA = parseMsEnv("KOTH_TP_SLOW_EXTRA", 2);
+/** Space out players so the server/bot RCON queue does not drop commands. */
+const KOTH_INTER_PLAYER_RCON_MS = parseMsEnv("KOTH_INTER_PLAYER_RCON_MS", 180);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -193,45 +199,72 @@ async function giveKitsAndTeleports(opts: {
   signal: AbortSignal;
 }): Promise<void> {
   const { pool, guildRowId, rustServerId, eventId, kitName, host, port, password, signal } = opts;
+  const status = await getKothEventStatus(pool, eventId);
+  if (status !== "running") {
+    console.warn(`[koth] kit/teleport skipped — event ${eventId} is not running (status=${status ?? "?"})`);
+    return;
+  }
+
   const participants = await listKothParticipantsWithGatesAndClan(pool, guildRowId, eventId);
   const kit = kitName.trim();
 
-  /** Run kit+tp in parallel — serial RCON was N×(2 round-trips) and felt minutes long with many players. */
-  await Promise.all(
-    participants.map(async (p) => {
+  /** Serial RCON with pacing — parallel spikes saturate WebRCON and drops kit/teleport during lobby overlap or busy servers. */
+  for (let pi = 0; pi < participants.length; pi++) {
+    const p = participants[pi]!;
+    if (signal.aborted) throw new Error("KOTH aborted");
+    if (pi > 0 && KOTH_INTER_PLAYER_RCON_MS > 0) {
+      await sleepAbortable(KOTH_INTER_PLAYER_RCON_MS, signal);
+    }
+
+    const coordStr = await getGateCoord(pool, guildRowId, rustServerId, p.gateNumber);
+    if (!coordStr) {
+      console.warn(
+        `[koth] teleport skipped — no /manage-positions coordinates for **KOTH Gate ${p.gateNumber}** (player ${p.ingameName})`
+      );
+      continue;
+    }
+    const xyz = parseCoordTriple(coordStr);
+    if (!xyz) {
+      console.warn(`[koth] bad gate coord for gate ${p.gateNumber}: ${coordStr}`);
+      continue;
+    }
+    const posArg = formatTeleportPosComma(xyz);
+
+    const name = quoteForRconArg(p.ingameName);
+    const kitCmd = `kit givetoplayer "${quoteForRconArg(kit)}" "${name}"`;
+    const tpCmd = `global.teleportpos ${posArg} "${name}"`;
+
+    let okPair = false;
+    for (let attempt = 1; attempt <= TELEPORT_KIT_MAX_ATTEMPTS; attempt++) {
       if (signal.aborted) throw new Error("KOTH aborted");
-      const coordStr = await getGateCoord(pool, guildRowId, rustServerId, p.gateNumber);
-      if (!coordStr) {
-        console.warn(
-          `[koth] teleport skipped — no /manage-positions coordinates for **KOTH Gate ${p.gateNumber}** (player ${p.ingameName})`
-        );
-        return;
+      const kitRes = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
+      const tpRes = await runWebRconCommand(rustServerId, host, port, password, tpCmd);
+      if (kitRes.ok && tpRes.ok) {
+        console.log(`[koth] teleport ok: ${p.ingameName} → gate ${p.gateNumber} (${p.clanName}) → ${posArg}`);
+        okPair = true;
+        break;
       }
-      const xyz = parseCoordTriple(coordStr);
-      if (!xyz) {
-        console.warn(`[koth] bad gate coord for gate ${p.gateNumber}: ${coordStr}`);
-        return;
-      }
-      const posArg = formatTeleportPosComma(xyz);
+      if (!kitRes.ok) console.error(`[koth] kit failed for ${p.ingameName}: ${kitRes.error}`);
+      if (!tpRes.ok) console.error(`[koth] teleport failed for ${p.ingameName}: ${tpRes.error} (cmd: ${tpCmd})`);
+      if (attempt < TELEPORT_KIT_MAX_ATTEMPTS) await sleepAbortable(TELEPORT_KIT_RETRY_MS, signal);
+    }
 
-      const name = quoteForRconArg(p.ingameName);
-      const kitCmd = `kit givetoplayer "${quoteForRconArg(kit)}" "${name}"`;
-      const tpCmd = `global.teleportpos ${posArg} "${name}"`;
-
-      for (let attempt = 1; attempt <= TELEPORT_KIT_MAX_ATTEMPTS; attempt++) {
+    if (!okPair && KOTH_TP_SLOW_EXTRA > 0) {
+      console.warn(`[koth] entering slow RCON retry (${KOTH_TP_SLOW_WAIT_MS}ms) for ${p.ingameName}`);
+      await sleepAbortable(KOTH_TP_SLOW_WAIT_MS, signal);
+      for (let slow = 1; slow <= KOTH_TP_SLOW_EXTRA; slow++) {
         if (signal.aborted) throw new Error("KOTH aborted");
         const kitRes = await runWebRconCommand(rustServerId, host, port, password, kitCmd);
         const tpRes = await runWebRconCommand(rustServerId, host, port, password, tpCmd);
         if (kitRes.ok && tpRes.ok) {
-          console.log(`[koth] teleport ok: ${p.ingameName} → ${posArg}`);
-          return;
+          console.log(`[koth] teleport ok (slow retry): ${p.ingameName} → gate ${p.gateNumber}`);
+          okPair = true;
+          break;
         }
-        if (!kitRes.ok) console.error(`[koth] kit failed for ${p.ingameName}: ${kitRes.error}`);
-        if (!tpRes.ok) console.error(`[koth] teleport failed for ${p.ingameName}: ${tpRes.error} (cmd: ${tpCmd})`);
-        if (attempt < TELEPORT_KIT_MAX_ATTEMPTS) await sleepAbortable(TELEPORT_KIT_RETRY_MS, signal);
+        if (slow < KOTH_TP_SLOW_EXTRA) await sleepAbortable(KOTH_TP_SLOW_WAIT_MS, signal);
       }
-    })
-  );
+    }
+  }
 }
 
 function formatKothKillLogLine(row: KothKillLogRow): string {

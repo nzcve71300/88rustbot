@@ -16,6 +16,7 @@ import {
   listGateViews,
   listKothAutomationServers,
   mergeKothConfig,
+  reconcileKothRosterAndGatesBeforeMatch,
   setKothLobbyEndsInMinutes,
   startKothEvent,
 } from "../db/koth.js";
@@ -76,6 +77,12 @@ export async function startKothMatchFromLobby(
   try {
     password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
   } catch {
+    return false;
+  }
+
+  const roster = await reconcileKothRosterAndGatesBeforeMatch(pool, guildRowId, eventId, cfg.gates);
+  if (!roster.ok) {
+    console.warn("[koth] match start aborted — no participants after clan sync");
     return false;
   }
 
@@ -228,6 +235,12 @@ async function processLobbyPhase(
   if (meta.lobbyEndsAtMs == null && cfg.automationStarted) {
     await setKothLobbyEndsInMinutes(pool, eventId, LOBBY_MAX_MINUTES);
     return;
+  }
+
+  try {
+    await applyKothLobbyActiveZoneIfConfigured(pool, guildRowId, rustServerId);
+  } catch (e) {
+    console.error("[koth zones] lobby phase ensure-active failed:", e);
   }
 
   const gatesTotal = cfg.gates;

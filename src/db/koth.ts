@@ -1,4 +1,5 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { getMemberClan } from "./clans.js";
 
 export type KothConfig = {
   rustServerId: number;
@@ -319,6 +320,88 @@ export async function countEventMembers(pool: Pool, eventId: number): Promise<nu
     { eid: eventId }
   );
   return Number((rows[0] as { c: number }).c);
+}
+
+/**
+ * Call immediately **before** flipping the event from lobby → running.
+ * - Drops roster rows for players no longer in any clan.
+ * - Updates `clan_id` when a player's Discord clan changed since lobby join.
+ * - Rebuilds `koth_event_gates` so each clan has exactly one gate (sequential slots); removes overflow clans if needed.
+ */
+export async function reconcileKothRosterAndGatesBeforeMatch(
+  pool: Pool,
+  guildRowId: number,
+  eventId: number,
+  maxGates: number
+): Promise<{ ok: true; clans: number; members: number } | { ok: false; reason: "no_participants" }> {
+  const [memberRows] = await pool.query<RowDataPacket[]>(
+    `SELECT id, CAST(discord_user_id AS CHAR) AS discordUserId, clan_id AS clanId
+     FROM koth_event_members WHERE event_id = :eid ORDER BY joined_at ASC`,
+    { eid: eventId }
+  );
+  const members = memberRows as { id: number; discordUserId: string; clanId: number }[];
+
+  for (const m of members) {
+    const cur = await getMemberClan(pool, guildRowId, m.discordUserId);
+    if (!cur) {
+      await pool.query<ResultSetHeader>(`DELETE FROM koth_event_members WHERE id = ?`, [m.id]);
+      continue;
+    }
+    if (Number(cur.clanId) !== Number(m.clanId)) {
+      await pool.query<ResultSetHeader>(
+        `UPDATE koth_event_members SET clan_id = ? WHERE id = ?`,
+        [cur.clanId, m.id]
+      );
+    }
+  }
+
+  const [afterRows] = await pool.query<RowDataPacket[]>(
+    `SELECT clan_id AS clanId, MIN(joined_at) AS firstJoined
+     FROM koth_event_members WHERE event_id = :eid
+     GROUP BY clan_id
+     ORDER BY firstJoined ASC`,
+    { eid: eventId }
+  );
+  let clanOrder = (afterRows as { clanId: number }[]).map((r) => Number(r.clanId));
+
+  const lim = Math.max(1, Math.min(20, Math.floor(maxGates)));
+  if (clanOrder.length === 0) {
+    return { ok: false, reason: "no_participants" };
+  }
+
+  if (clanOrder.length > lim) {
+    const dropped = clanOrder.slice(lim);
+    clanOrder = clanOrder.slice(0, lim);
+    console.warn(
+      `[koth] reconcile: ${dropped.length} clan(s) exceed gate limit (${lim}); dropping lowest-priority roster(s) for this match`
+    );
+    for (const cid of dropped) {
+      await pool.query<ResultSetHeader>(`DELETE FROM koth_event_members WHERE event_id = ? AND clan_id = ?`, [eventId, cid]);
+    }
+  }
+
+  await pool.query<ResultSetHeader>(`DELETE FROM koth_event_gates WHERE event_id = ?`, [eventId]);
+  let gate = 1;
+  for (const cid of clanOrder) {
+    await pool.query<ResultSetHeader>(
+      `INSERT INTO koth_event_gates (event_id, gate_number, clan_id) VALUES (?,?,?)`,
+      [eventId, gate, cid]
+    );
+    gate++;
+  }
+
+  const [crows] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) AS c FROM koth_event_members WHERE event_id = ?`, [eventId]);
+  const memberCount = Number((crows[0] as { c: number }).c);
+  return { ok: true, clans: clanOrder.length, members: memberCount };
+}
+
+export async function getKothEventStatus(pool: Pool, eventId: number): Promise<string | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT status FROM koth_events WHERE id = :eid LIMIT 1`,
+    { eid: eventId }
+  );
+  const r = rows[0] as { status: string } | undefined;
+  return r ? String(r.status) : null;
 }
 
 export async function startKothEvent(

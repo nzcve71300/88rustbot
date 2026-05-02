@@ -316,24 +316,29 @@ exports.handler = async (event, context) => {
       itemCount: validatedItemsForPaypal.length,
     });
 
+    // Tie PayPal captures to Discord user (appears on PAYMENT.CAPTURE.COMPLETED as resource.custom_id).
+    const purchaseUnit = {
+      amount: {
+        currency_code: 'EUR',
+        value: paypalTotalStr,
+        breakdown: {
+          item_total: {
+            currency_code: 'EUR',
+            value: paypalTotalStr,
+          },
+        },
+      },
+      items: validatedItemsForPaypal,
+    };
+    const uidRaw = String(requestUserId || '').trim();
+    if (/^\d{17,20}$/.test(uidRaw)) {
+      purchaseUnit.custom_id = uidRaw.slice(0, 127);
+    }
+
     // Create order
     const orderData = {
       intent: 'CAPTURE',
-      purchase_units: [
-        {
-          amount: {
-            currency_code: 'EUR',
-            value: paypalTotalStr,
-            breakdown: {
-              item_total: {
-                currency_code: 'EUR',
-                value: paypalTotalStr,
-              },
-            },
-          },
-          items: validatedItemsForPaypal,
-        },
-      ],
+      purchase_units: [purchaseUnit],
       application_context: {
         brand_name: 'Lucid Store Hub',
         landing_page: 'NO_PREFERENCE',

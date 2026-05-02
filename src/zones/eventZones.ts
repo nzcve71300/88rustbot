@@ -68,7 +68,7 @@ export async function applyEventZoneConfigIfPresent(opts: {
   const wantName = want.zoneName.trim();
   const otherName = otherCfg?.zoneName?.trim() ?? "";
   const switchingProfiles = Boolean(otherName && otherName !== wantName);
-  if (switchingProfiles) {
+  if (switchingProfiles && otherCfg) {
     await runWebRconCommand(rustServerId, rcon.host, rcon.port, rcon.password, deleteZoneCmd(otherCfg.zoneName)).catch(() => {});
   }
 

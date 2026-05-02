@@ -168,7 +168,7 @@ async function isEventRunningNow(pool: Pool, guildRowId: number, rustServerId: n
   }
   // onev1
   const match = await getMatchForServer(pool, rustServerId);
-  return match?.status === "running";
+  return match?.status === "active";
 }
 
 async function isEventActiveForZones(pool: Pool, guildRowId: number, rustServerId: number, eventType: EventZoneType): Promise<boolean> {
@@ -185,9 +185,9 @@ async function isEventActiveForZones(pool: Pool, guildRowId: number, rustServerI
     const a = await getActiveNuketownEventMeta(pool, guildRowId, rustServerId);
     return a?.status === "lobby" || a?.status === "running";
   }
-  // onev1: treat pending/running as active (no lobby concept).
+  // onev1: treat pending/active as active (no lobby concept).
   const match = await getMatchForServer(pool, rustServerId);
-  return match != null && (match.status === "pending" || match.status === "running");
+  return match != null && (match.status === "pending" || match.status === "active");
 }
 
 export async function handleAdminPanelRoutes(

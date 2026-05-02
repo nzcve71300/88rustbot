@@ -7,9 +7,8 @@ import { pool } from "../../db/pool.js";
 import { getMemberClan } from "../../db/clans.js";
 import {
   addEventMember,
-  assignGate,
+  ensureClanGateForEvent,
   ensureLobbyEventForJoin,
-  getClanGate,
   getKothConfig,
   getActiveKothEventMeta,
   listGateViews,
@@ -21,10 +20,7 @@ import {
 } from "../../db/eventParticipation.js";
 import { listRustServersForGuild } from "../../db/rustServers.js";
 import { updateKothMessage } from "../../koth/announce.js";
-import { getRustServerByIdForGuild } from "../../db/rustServers.js";
-import { decryptSecret } from "../../crypto/passwordVault.js";
-import { config } from "../../config.js";
-import { applyEventZoneConfigIfPresent } from "../../zones/eventZones.js";
+import { applyKothLobbyActiveZoneIfConfigured } from "../../koth/lobbyEventZone.js";
 
 export const kothJoinCommand = {
   data: new SlashCommandBuilder()
@@ -92,41 +88,17 @@ export const kothJoinCommand = {
     }
     const eventId = lobby.eventId;
 
-    // Ensure ACTIVE zone is applied while lobby is open (covers manual /koth-join-created lobbies).
+    // Main KOTH arena zone must be active for the whole lobby (website join + Discord join).
     try {
-      const srv = await getRustServerByIdForGuild(pool, guildRowId, serverId);
-      if (srv) {
-        const password = decryptSecret(srv.rcon_password_encrypted, config.encryptionKeyHex);
-        await applyEventZoneConfigIfPresent({
-          pool,
-          guildRowId,
-          rustServerId: serverId,
-          eventType: "koth",
-          desired: "active",
-          rcon: { host: srv.server_ip, port: srv.rcon_port, password },
-        });
-      }
+      await applyKothLobbyActiveZoneIfConfigured(pool, guildRowId, serverId);
     } catch (e) {
       console.error("[koth zones] failed to apply active on join:", e);
     }
 
-    let gate = await getClanGate(pool, eventId, clan.clanId);
+    const gate = await ensureClanGateForEvent(pool, eventId, clan.clanId, config.gates);
     if (gate == null) {
-      const gates = await listGateViews(pool, eventId);
-      const used = new Set(gates.map((g) => g.gateNumber));
-      let found: number | null = null;
-      for (let i = 1; i <= config.gates; i++) {
-        if (!used.has(i)) {
-          found = i;
-          break;
-        }
-      }
-      if (found == null) {
-        await interaction.editReply({ embeds: [baseEmbed().setTitle("Gates full").setDescription("All gates are taken.")] });
-        return;
-      }
-      await assignGate(pool, eventId, found, clan.clanId);
-      gate = found;
+      await interaction.editReply({ embeds: [baseEmbed().setTitle("Gates full").setDescription("All gates are taken.")] });
+      return;
     }
 
     const res = await addEventMember(pool, eventId, clan.clanId, interaction.user.id, config.teamLimit);

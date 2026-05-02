@@ -13,6 +13,10 @@ import {
   deleteExpiredInvites,
   findInviteByCode,
   getClanSettings,
+  getDiscordRoleIdsForClanIds,
+  getMemberClan,
+  getOwnedClanIdInGuild,
+  removeClanMemberRowsExceptInGuild,
 } from "../db/clans.js";
 import { refreshActiveClansPanelsForGuild } from "./activeClansPanel.js";
 import { syncLinkedNicknameForUser } from "./nicknames.js";
@@ -108,6 +112,37 @@ export async function handleJoinClanModal(interaction: ModalSubmitInteraction): 
       ephemeral: true,
     });
     return;
+  }
+
+  const ownedElsewhere = await getOwnedClanIdInGuild(pool, guildRowId, interaction.user.id);
+  if (ownedElsewhere != null && ownedElsewhere !== invite.clanId) {
+    const ownedInfo = await getMemberClan(pool, guildRowId, interaction.user.id);
+    const name = ownedInfo?.clanName ?? "your clan";
+    await interaction.reply({
+      embeds: [
+        baseEmbed()
+          .setTitle("You already lead a clan")
+          .setDescription(
+            `You are the owner of **${name}**. Transfer ownership with **/clan-promote** or delete the clan with **/clan-delete** before joining another.`
+          ),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const strippedFrom = await removeClanMemberRowsExceptInGuild(pool, guildRowId, interaction.user.id, invite.clanId);
+  if (strippedFrom.length > 0 && interaction.guild) {
+    const roleByClan = await getDiscordRoleIdsForClanIds(pool, strippedFrom);
+    try {
+      const mem = await interaction.guild.members.fetch(interaction.user.id);
+      for (const cid of strippedFrom) {
+        const rid = roleByClan.get(cid);
+        if (rid) await mem.roles.remove(rid, "Switch clan — join invite").catch(() => null);
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   const res = await addClanMember(pool, invite.clanId, interaction.user.id);

@@ -27,6 +27,7 @@ import { updateKothMessage } from "./announce.js";
 import { renderKothEmbed } from "./render.js";
 import { parseGateCoordTriple, runKothWaves } from "./runner.js";
 import { applyEventZoneConfigIfPresent } from "../zones/eventZones.js";
+import { applyKothLobbyActiveZoneIfConfigured } from "./lobbyEventZone.js";
 
 const LOBBY_MAX_MINUTES = 5;
 const MIN_GATE_FILL_RATIO = 0.5;
@@ -206,20 +207,8 @@ async function openAutomatedLobby(pool: Pool, client: Client, guildRowId: number
     tag: `koth-lobby-${lobby.eventId}`,
   });
 
-  // Zone swap: lobby opened -> ensure active.
   try {
-    const srvFull = await getRustServerByIdForGuild(pool, guildRowId, rustServerId);
-    if (srvFull) {
-      const password = decryptSecret(srvFull.rcon_password_encrypted, config.encryptionKeyHex);
-      await applyEventZoneConfigIfPresent({
-        pool,
-        guildRowId,
-        rustServerId,
-        eventType: "koth",
-        desired: "active",
-        rcon: { host: srvFull.server_ip, port: srvFull.rcon_port, password },
-      });
-    }
+    await applyKothLobbyActiveZoneIfConfigured(pool, guildRowId, rustServerId);
   } catch (e) {
     console.error("[koth zones] failed to apply active on lobby open:", e);
   }

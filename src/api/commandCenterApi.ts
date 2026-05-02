@@ -11,12 +11,11 @@ import { config } from "../config.js";
 import { runWebRconCommand } from "../rcon/webrcon.js";
 import {
   addEventMember,
-  assignGate,
   countEventMembers,
+  ensureClanGateForEvent,
   ensureLobbyEventForJoin,
   getActiveKothEvent,
   getActiveKothEventMeta,
-  getClanGate,
   getKothDoorDelayMs,
   getKothConfig,
   listGateViews,
@@ -24,6 +23,7 @@ import {
   removeEventMember,
   removeGateIfEmpty,
 } from "../db/koth.js";
+import { applyKothLobbyActiveZoneIfConfigured } from "../koth/lobbyEventZone.js";
 import {
   countNuketownMembers,
   getActiveNuketownEventMeta,
@@ -86,12 +86,15 @@ import {
   deleteExpiredInvites,
   getClanForEventParticipation,
   getClanSettings,
+  getDiscordRoleIdsForClanIds,
   getMemberClan,
   findInviteByCode,
+  getOwnedClanIdInGuild,
   inviteCodeExists,
   listClanMemberDiscordUserIds,
   promoteClanOwner,
   removeClanMember,
+  removeClanMemberRowsExceptInGuild,
   updateClanDetails,
 } from "../db/clans.js";
 import { refreshActiveClansPanelsForGuild } from "../clans/activeClansPanel.js";
@@ -1188,23 +1191,16 @@ export function startCommandCenterApi(client?: Client): void {
             }
             const eventId = lobby.eventId;
 
-            let gate = await getClanGate(pool, eventId, clan.clanId);
+            try {
+              await applyKothLobbyActiveZoneIfConfigured(pool, guildRowId, serverId);
+            } catch (e) {
+              console.error("[koth zones] website join failed to apply active:", e);
+            }
+
+            const gate = await ensureClanGateForEvent(pool, eventId, clan.clanId, config.gates);
             if (gate == null) {
-              const gates = await listGateViews(pool, eventId);
-              const used = new Set(gates.map((g) => g.gateNumber));
-              let found: number | null = null;
-              for (let i = 1; i <= config.gates; i++) {
-                if (!used.has(i)) {
-                  found = i;
-                  break;
-                }
-              }
-              if (found == null) {
-                json(res, 409, { ok: false, error: "All gates are taken." });
-                return;
-              }
-              await assignGate(pool, eventId, found, clan.clanId);
-              gate = found;
+              json(res, 409, { ok: false, error: "All gates are taken." });
+              return;
             }
 
             const r = await addEventMember(pool, eventId, clan.clanId, discordUserId, config.teamLimit);
@@ -1765,11 +1761,6 @@ export function startCommandCenterApi(client?: Client): void {
         }
 
         if (tail === "join" && req.method === "POST") {
-          const already = await getMemberClan(pool, guildRowId, discordUserId);
-          if (already) {
-            json(res, 409, { ok: false, error: "Already in a clan." });
-            return;
-          }
           const body = (await readJsonBody(req)) as { code?: string } | null;
           const code = String(body?.code ?? "").trim();
           if (!/^\d{4}$/.test(code)) {
@@ -1792,7 +1783,37 @@ export function startCommandCenterApi(client?: Client): void {
             return;
           }
 
-          await addClanMember(pool, inv.clanId, discordUserId);
+          const ownedElsewhere = await getOwnedClanIdInGuild(pool, guildRowId, discordUserId);
+          if (ownedElsewhere != null && ownedElsewhere !== inv.clanId) {
+            json(res, 403, {
+              ok: false,
+              error: "You lead another clan. Transfer ownership or delete it before joining a different one.",
+            });
+            return;
+          }
+
+          const strippedFrom = await removeClanMemberRowsExceptInGuild(pool, guildRowId, discordUserId, inv.clanId);
+          if (strippedFrom.length > 0 && guild) {
+            const roleByClan = await getDiscordRoleIdsForClanIds(pool, strippedFrom);
+            try {
+              const mem = await guild.members.fetch(discordUserId);
+              for (const cid of strippedFrom) {
+                const rid = roleByClan.get(cid);
+                if (rid) await mem.roles.remove(rid, "Switch clan — website invite").catch(() => null);
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+
+          const joinRes = await addClanMember(pool, inv.clanId, discordUserId);
+          if (joinRes === "already_member") {
+            json(res, 200, { ok: true, clanName: inv.clanName, already: true });
+            if (client && guildDiscordId) {
+              await refreshActiveClansPanelsForGuild(client, guildDiscordId).catch(() => {});
+            }
+            return;
+          }
           if (guild && inv.discordRoleId) {
             try {
               const member = await guild.members.fetch(discordUserId);

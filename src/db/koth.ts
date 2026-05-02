@@ -809,6 +809,70 @@ export async function assignGate(pool: Pool, eventId: number, gateNumber: number
   );
 }
 
+/**
+ * Returns this clan's gate, or reserves the lowest free gate under concurrency-safe rules.
+ * Two clans cannot receive the same gate number (DB unique); concurrent joins retry instead of failing randomly.
+ */
+export async function ensureClanGateForEvent(
+  pool: Pool,
+  eventId: number,
+  clanId: number,
+  maxGates: number
+): Promise<number | null> {
+  const lim = Math.max(1, Math.min(20, Math.floor(maxGates)));
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const existing = await getClanGate(pool, eventId, clanId);
+    if (existing != null) return existing;
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [held] = await conn.query<RowDataPacket[]>(
+        `SELECT gate_number AS gateNumber FROM koth_event_gates WHERE event_id = ? FOR UPDATE`,
+        [eventId]
+      );
+      const used = new Set((held as { gateNumber: number }[]).map((r) => Number(r.gateNumber)));
+      let chosen: number | null = null;
+      for (let i = 1; i <= lim; i++) {
+        if (!used.has(i)) {
+          chosen = i;
+          break;
+        }
+      }
+      if (chosen == null) {
+        await conn.rollback();
+        return null;
+      }
+      try {
+        await conn.query<ResultSetHeader>(
+          `INSERT INTO koth_event_gates (event_id, gate_number, clan_id) VALUES (?,?,?)`,
+          [eventId, chosen, clanId]
+        );
+      } catch (ins: unknown) {
+        await conn.rollback();
+        const code = typeof ins === "object" && ins && "code" in ins ? String((ins as { code: string }).code) : "";
+        if (code === "ER_DUP_ENTRY") {
+          continue;
+        }
+        throw ins;
+      }
+      await conn.commit();
+      return chosen;
+    } catch (e) {
+      try {
+        await conn.rollback();
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    } finally {
+      conn.release();
+    }
+  }
+  return null;
+}
+
 export async function removeGateIfEmpty(pool: Pool, eventId: number, clanId: number): Promise<void> {
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS c FROM koth_event_members WHERE event_id = :eid AND clan_id = :cid`,

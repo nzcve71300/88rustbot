@@ -172,6 +172,7 @@ export async function getMemberClan(
     FROM clan_members m
     JOIN clans c ON c.id = m.clan_id
     WHERE c.guild_id = :gid AND m.discord_user_id = :uid
+    ORDER BY m.joined_at DESC
     LIMIT 1
   `,
     { gid: guildRowId, uid: discordUserId }
@@ -355,6 +356,67 @@ export async function removeClanMember(
   return res.affectedRows > 0;
 }
 
+/** Clan id if this user owns a clan row in this Discord guild. */
+export async function getOwnedClanIdInGuild(
+  pool: Pool,
+  guildRowId: number,
+  discordUserId: string
+): Promise<number | null> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT id AS clanId FROM clans
+     WHERE guild_id = :gid AND CAST(owner_discord_user_id AS CHAR) = :uid LIMIT 1`,
+    { gid: guildRowId, uid: String(discordUserId) }
+  );
+  const r = rows[0] as { clanId: number } | undefined;
+  return r ? Number(r.clanId) : null;
+}
+
+/**
+ * Remove `clan_members` rows for this user for every clan in the guild except `keepClanId`.
+ * Does not change `clans.owner_discord_user_id` — callers must block joins when the user still owns another clan.
+ */
+export async function removeClanMemberRowsExceptInGuild(
+  pool: Pool,
+  guildRowId: number,
+  discordUserId: string,
+  keepClanId: number
+): Promise<number[]> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT cm.clan_id AS clanId
+     FROM clan_members cm
+     INNER JOIN clans c ON c.id = cm.clan_id
+     WHERE c.guild_id = :gid AND CAST(cm.discord_user_id AS CHAR) = :uid AND cm.clan_id <> :keep`,
+    { gid: guildRowId, uid: String(discordUserId), keep: keepClanId }
+  );
+  const before = (rows as { clanId: number }[]).map((r) => Number(r.clanId));
+  if (before.length === 0) return [];
+  await pool.query<ResultSetHeader>(
+    `DELETE cm FROM clan_members cm
+     INNER JOIN clans c ON c.id = cm.clan_id
+     WHERE c.guild_id = :gid AND CAST(cm.discord_user_id AS CHAR) = :uid AND cm.clan_id <> :keep`,
+    { gid: guildRowId, uid: String(discordUserId), keep: keepClanId }
+  );
+  return before;
+}
+
+export async function getDiscordRoleIdsForClanIds(
+  pool: Pool,
+  clanIds: number[]
+): Promise<Map<number, string | null>> {
+  if (clanIds.length === 0) return new Map();
+  const uniq = [...new Set(clanIds)];
+  const placeholders = uniq.map(() => "?").join(",");
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT id AS clanId, CAST(discord_role_id AS CHAR) AS discordRoleId FROM clans WHERE id IN (${placeholders})`,
+    uniq
+  );
+  const m = new Map<number, string | null>();
+  for (const r of rows as { clanId: number; discordRoleId: string | null }[]) {
+    m.set(Number(r.clanId), r.discordRoleId != null ? String(r.discordRoleId).trim() || null : null);
+  }
+  return m;
+}
+
 export async function promoteClanOwner(
   pool: Pool,
   guildRowId: number,
@@ -460,6 +522,7 @@ export async function listGuildClansWithMemberCounts(
     ) u ON u.clanId = c.id
     WHERE c.guild_id = :gid
     GROUP BY c.id, c.name, c.tag, c.discord_role_id
+    HAVING COUNT(DISTINCT u.uid) > 0
     ORDER BY memberCount DESC, c.name ASC
     `,
     { gid: guildRowId }
